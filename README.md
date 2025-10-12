@@ -6,7 +6,7 @@
 
 This is a web application that transforms static PDF textbooks into an interactive learning experience. Instead of passively reading, students get real-time AI-generated summaries, practice questions, and an intelligent chat assistant that understands the context of what they're reading.
 
-**Live Demo**: [Coming soon]
+**Live Demo**: [https://ai-textbook-reader-design.vercel.app](https://ai-textbook-reader-design.vercel.app)
 
 ## Why I built this
 
