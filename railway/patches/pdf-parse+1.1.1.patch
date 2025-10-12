@@ -1,0 +1,33 @@
+diff --git a/node_modules/pdf-parse/index.js b/node_modules/pdf-parse/index.js
+index e9fc367..421959b 100644
+--- a/node_modules/pdf-parse/index.js
++++ b/node_modules/pdf-parse/index.js
+@@ -11,16 +11,17 @@ let isDebugMode = !module.parent;
+ //for testing purpose
+ if (isDebugMode) {
+ 
+-    let PDF_FILE = './test/data/05-versions-space.pdf';
+-    let dataBuffer = Fs.readFileSync(PDF_FILE);
+-    Pdf(dataBuffer).then(function(data) {
+-        Fs.writeFileSync(`${PDF_FILE}.txt`, data.text, {
+-            encoding: 'utf8',
+-            flag: 'w'
+-        });
+-        debugger;
+-    }).catch(function(err) {
+-        debugger;
+-    });
++    // PATCHED: Commented out to prevent file not found errors in production
++    // let PDF_FILE = './test/data/05-versions-space.pdf';
++    // let dataBuffer = Fs.readFileSync(PDF_FILE);
++    // Pdf(dataBuffer).then(function(data) {
++    //     Fs.writeFileSync(`${PDF_FILE}.txt`, data.text, {
++    //         encoding: 'utf8',
++    //         flag: 'w'
++    //     });
++    //     debugger;
++    // }).catch(function(err) {
++    //     debugger;
++    // });
+ 
+ }
