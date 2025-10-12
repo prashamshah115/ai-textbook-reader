@@ -140,6 +140,6 @@ I own full rights to this repository.
 
 **Status**: MVP complete and deployed. Actively improving based on real-world usage.
 
-**Built by**: [Your Name]
+**Built by**: Prasham Shah
 
-**Contact**: [Your Email or Twitter]
+**Contact**: prashamshah115@gmail.com
