@@ -1,10 +1,12 @@
 [build]
 builder = "nixpacks"
-buildCommand = "cd railway && npm install"
 
 [deploy]
-startCommand = "cd railway && npm start"
+startCommand = "npm start"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
+
+[[watchPaths]]
+patterns = ["railway/**"]
 
 
