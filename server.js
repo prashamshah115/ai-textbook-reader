@@ -204,7 +204,8 @@ app.post('/extract', authenticateApiKey, async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 PDF Extraction Service running on port ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/health`);
+  console.log(`📍 Health check: http://0.0.0.0:${PORT}/health`);
+  console.log(`📍 Public URL will be provided by Railway`);
 });
