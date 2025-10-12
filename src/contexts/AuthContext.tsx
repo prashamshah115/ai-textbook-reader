@@ -42,12 +42,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
 
-    // Listen for auth changes
+    // Listen for auth changes with detailed event handling
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('[Auth] State change:', event);
+      
       setSession(session);
       setUser(session?.user ?? null);
+      
+      if (event === 'TOKEN_REFRESHED') {
+        console.log('✅ [Auth] Token refreshed successfully');
+      }
+      
+      if (event === 'SIGNED_OUT' || !session) {
+        setIsWhitelisted(false);
+        console.log('🔴 [Auth] Session ended');
+      }
       
       if (session?.user?.email) {
         await checkWhitelist(session.user.email);
@@ -59,27 +70,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Session heartbeat - keep session alive and recover from drops
+  // Proactive session refresh - refresh 5 minutes before expiry
   useEffect(() => {
-    const heartbeat = setInterval(async () => {
+    const checkAndRefresh = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error || !session) {
-          console.warn('[Auth Heartbeat] No valid session, attempting refresh...');
+          console.warn('[Auth] No valid session');
+          return;
+        }
+
+        // Check if session expires soon (within 5 minutes)
+        const expiresAt = new Date(session.expires_at!).getTime();
+        const now = Date.now();
+        const timeUntilExpiry = expiresAt - now;
+        const fiveMinutes = 5 * 60 * 1000;
+
+        if (timeUntilExpiry < fiveMinutes) {
+          console.log('[Auth] Session expiring soon, refreshing proactively...');
           const { error: refreshError } = await supabase.auth.refreshSession();
+          
           if (refreshError) {
-            console.error('[Auth Heartbeat] Failed to refresh session:', refreshError);
+            console.error('[Auth] Failed to refresh session:', refreshError);
           } else {
-            console.log('[Auth Heartbeat] Session refreshed successfully');
+            console.log('✅ [Auth] Session refreshed proactively');
           }
+        } else {
+          console.log(`[Auth] Session valid for ${Math.round(timeUntilExpiry / 60000)} more minutes`);
         }
       } catch (error) {
-        console.error('[Auth Heartbeat] Error:', error);
+        console.error('[Auth] Session check error:', error);
       }
-    }, 120000); // Every 2 minutes
+    };
 
-    return () => clearInterval(heartbeat);
+    // Check immediately on mount
+    checkAndRefresh();
+
+    // Then check every minute
+    const interval = setInterval(checkAndRefresh, 60000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const signIn = async (email: string, password: string) => {

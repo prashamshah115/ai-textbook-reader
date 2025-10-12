@@ -163,21 +163,36 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       // Store context for viewer
       setCurrentContext(JSON.stringify(richContext, null, 2));
 
-      // Call chat API with full context
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: content,
-          context: richContext,
-          conversationId,
-        }),
-      });
+      // Call chat API with 30s timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-      if (!response.ok) {
-        throw new Error('Failed to get response');
+      let response;
+      try {
+        response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: content,
+            context: richContext,
+            conversationId,
+          }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error('Failed to get response');
+        }
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        if (fetchError.name === 'AbortError') {
+          throw new Error('Request timed out. Please try again.');
+        }
+        throw fetchError;
       }
 
       const data = await response.json();

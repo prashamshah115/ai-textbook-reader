@@ -49,6 +49,11 @@ export async function extractTextFromPDF(
     const pages: ExtractedPage[] = [];
 
     for (let i = 1; i <= pdf.numPages; i++) {
+      // Yield to browser every 10 pages to prevent UI freezing
+      if (i % 10 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
       
