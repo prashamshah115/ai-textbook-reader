@@ -6,6 +6,37 @@ const pdfParse = require('pdf-parse');
 
 dotenv.config();
 
+// DEBUG: Check environment variables
+console.log('==================== ENVIRONMENT DEBUG ====================');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('PORT:', process.env.PORT);
+console.log('SUPABASE_URL exists:', !!process.env.SUPABASE_URL);
+console.log('SUPABASE_URL value:', process.env.SUPABASE_URL ? `${process.env.SUPABASE_URL.substring(0, 30)}...` : '❌ MISSING');
+console.log('SUPABASE_SERVICE_KEY exists:', !!process.env.SUPABASE_SERVICE_KEY);
+console.log('SUPABASE_SERVICE_KEY value:', process.env.SUPABASE_SERVICE_KEY ? `${process.env.SUPABASE_SERVICE_KEY.substring(0, 30)}...` : '❌ MISSING');
+console.log('EXTRACTION_API_KEY exists:', !!process.env.EXTRACTION_API_KEY);
+console.log('EXTRACTION_API_KEY value:', process.env.EXTRACTION_API_KEY ? `${process.env.EXTRACTION_API_KEY.substring(0, 20)}...` : '❌ MISSING');
+console.log('All env keys containing SUPABASE or EXTRACTION:');
+console.log(Object.keys(process.env).filter(k => k.includes('SUPABASE') || k.includes('EXTRACTION')));
+console.log('Total environment variables:', Object.keys(process.env).length);
+console.log('===========================================================');
+
+// Validate required environment variables before creating Supabase client
+if (!process.env.SUPABASE_URL) {
+  console.error('❌ FATAL: SUPABASE_URL is not set in environment variables');
+  console.error('Available variables:', Object.keys(process.env).join(', '));
+  process.exit(1);
+}
+
+if (!process.env.SUPABASE_SERVICE_KEY) {
+  console.error('❌ FATAL: SUPABASE_SERVICE_KEY is not set in environment variables');
+  process.exit(1);
+}
+
+if (!process.env.EXTRACTION_API_KEY) {
+  console.error('⚠️  WARNING: EXTRACTION_API_KEY is not set - API will be unprotected!');
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -14,10 +45,12 @@ app.use(cors());
 app.use(express.json());
 
 // Initialize Supabase client
+console.log('✅ Initializing Supabase client...');
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
+console.log('✅ Supabase client initialized successfully');
 
 // API Key authentication middleware
 const authenticateApiKey = (req, res, next) => {
