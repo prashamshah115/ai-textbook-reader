@@ -199,3 +199,25 @@ html {
 .font-serif {
   font-family: 'Literata', 'Source Serif Pro', Georgia, serif;
 }
+
+/* Ensure dropdowns and modals appear above other content */
+[data-radix-popper-content-wrapper] {
+  z-index: 50 !important;
+}
+
+[data-radix-dialog-overlay] {
+  z-index: 50 !important;
+}
+
+[data-radix-dialog-content] {
+  z-index: 51 !important;
+}
+
+/* Better button visibility */
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
