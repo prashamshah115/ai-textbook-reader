@@ -29,7 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log(`[GeneratePageContent] Processing page ${pageNumber} for textbook ${textbookId}`);
 
     // Get the page data
-    let { data: pageData, error: pageError } = await supabase
+    let { data: pageData } = await supabase
       .from('pages')
       .select('*')
       .eq('textbook_id', textbookId)

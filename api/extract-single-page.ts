@@ -22,7 +22,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log(`[Extract Single Page] Extracting page ${pageNumber} for textbook ${textbookId}`);
 
     // Check if page already exists
-    const { data: existingPage, error: pageError } = await supabase
+    const { data: existingPage } = await supabase
       .from('pages')
       .select('raw_text')
       .eq('textbook_id', textbookId)
