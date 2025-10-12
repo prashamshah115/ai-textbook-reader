@@ -2,8 +2,8 @@
 nixPkgs = ["nodejs-18_x"]
 
 [phases.install]
-cmds = ["cd railway && npm ci"]
+cmds = ["npm ci"]
 
 [start]
-cmd = "cd railway && npm start"
+cmd = "npm start"
 
