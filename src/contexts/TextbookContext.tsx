@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext';
 import { toast } from 'sonner';
 import type { UploadMetadata } from '../components/UploadDialog';
 import { fetchWithRetry } from '../lib/fetchWithRetry';
+import { extractTextFromPDF } from '../lib/pdfExtractor';
 
 interface Page {
   id: string;
@@ -425,7 +426,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     setTimeout(() => clearInterval(pollInterval), 300000);
   };
 
-  // Upload textbook (Instant view + background processing)
+  // Upload textbook with CLIENT-SIDE extraction (2-5 seconds!)
   const uploadTextbook = async (
     file: File,
     metadata: UploadMetadata,
@@ -434,13 +435,42 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     if (!user) throw new Error('User not authenticated');
 
     try {
-      // Generate textbook ID
       const textbookId = crypto.randomUUID();
 
-      // Step 1: Upload PDF to Supabase Storage
-      onProgress?.(30, 'uploading');
-      const filePath = `${user.id}/${textbookId}.pdf`;
+      // Step 1: Extract text in browser (INSTANT - 2-5 seconds)
+      onProgress?.(5, 'extracting');
+      toast.loading('Extracting text from PDF...', { id: 'extraction' });
       
+      const { pages, metadata: pdfMetadata } = await extractTextFromPDF(
+        file,
+        (progress) => {
+          const progressPercent = Math.round(progress.percentage * 0.4); // 0-40% for extraction
+          onProgress?.(progressPercent, 'extracting');
+          toast.loading(
+            `Extracting page ${progress.currentPage}/${progress.totalPages}...`,
+            { id: 'extraction' }
+          );
+        }
+      );
+
+      // Step 2: Check if extraction succeeded (detect scanned PDFs)
+      const totalTextLength = pages.reduce((sum, p) => sum + p.text.length, 0);
+      const avgTextPerPage = totalTextLength / pages.length;
+      
+      if (avgTextPerPage < 100) {
+        // Likely a scanned PDF - fallback to Railway OCR
+        console.log('[Upload] Scanned PDF detected (avg chars:', avgTextPerPage, ')');
+        toast.info('Scanned PDF detected. Using server extraction with OCR...', { id: 'extraction' });
+        return await uploadWithRailwayFallback(file, metadata, textbookId, onProgress);
+      }
+
+      toast.success(`Extracted ${pages.length} pages!`, { id: 'extraction' });
+
+      // Step 3: Upload PDF to Supabase Storage
+      onProgress?.(45, 'uploading');
+      toast.loading('Uploading PDF...', { id: 'upload' });
+      
+      const filePath = `${user.id}/${textbookId}.pdf`;
       const { error: uploadError } = await supabase.storage
         .from('textbook-pdfs')
         .upload(filePath, file);
@@ -454,16 +484,122 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
 
       const pdfUrl = urlData.publicUrl;
 
-      // Step 2: Create textbook record (minimal info for instant viewing)
-      onProgress?.(60, 'saving');
+      // Step 4: Create textbook record
+      onProgress?.(55, 'saving');
+      toast.loading('Saving textbook...', { id: 'upload' });
+      
       const { error: textbookError } = await supabase
         .from('textbooks')
         .insert({
           id: textbookId,
           user_id: user.id,
+          title: metadata.title || pdfMetadata.title || file.name.replace('.pdf', ''),
+          pdf_url: pdfUrl,
+          total_pages: pages.length,
+          processing_status: 'completed', // Already extracted!
+          processing_progress: 100,
+          processing_completed_at: new Date().toISOString(),
+          ai_processing_status: 'pending',
+          ai_processing_progress: 0,
+          metadata: {
+            subject: metadata.subject,
+            learning_goal: metadata.learningGoal,
+            original_filename: file.name,
+            author: pdfMetadata.author,
+            pdf_subject: pdfMetadata.subject,
+          },
+        });
+
+      if (textbookError) throw textbookError;
+
+      // Step 5: Save all pages to database (batch insert)
+      onProgress?.(60, 'saving');
+      toast.loading('Saving extracted text...', { id: 'upload' });
+      
+      const pageRecords = pages.map(p => ({
+        textbook_id: textbookId,
+        page_number: p.pageNumber,
+        raw_text: p.text,
+        processed: false,
+      }));
+
+      // Insert in batches of 100 to avoid DB limits
+      const batchSize = 100;
+      for (let i = 0; i < pageRecords.length; i += batchSize) {
+        const batch = pageRecords.slice(i, i + batchSize);
+        const { error: pagesError } = await supabase
+          .from('pages')
+          .insert(batch);
+        
+        if (pagesError) throw pagesError;
+        
+        const batchProgress = 60 + Math.round((i / pageRecords.length) * 30);
+        onProgress?.(batchProgress, 'saving');
+      }
+
+      toast.success('Text saved!', { id: 'upload' });
+
+      // Step 6: Load textbook for immediate viewing
+      onProgress?.(95, 'done');
+      await loadTextbooks();
+      await loadTextbook(textbookId);
+      
+      onProgress?.(100, 'done');
+      toast.success(`📚 ${pages.length} pages ready to read!`, { duration: 4000 });
+
+      // Step 7: Trigger chapter detection (optional, in background)
+      try {
+        await fetch('/api/detect-chapters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ textbookId }),
+        });
+      } catch (error) {
+        console.log('[Upload] Chapter detection will run later');
+      }
+
+      return textbookId;
+    } catch (error) {
+      console.error('[Upload] Error:', error);
+      toast.error('Failed to upload textbook');
+      throw error;
+    }
+  };
+
+  // Fallback to Railway for scanned PDFs (OCR needed)
+  const uploadWithRailwayFallback = async (
+    file: File,
+    metadata: UploadMetadata,
+    textbookId: string,
+    onProgress?: (progress: number, stage: string) => void
+  ): Promise<string> => {
+    try {
+      // Upload PDF
+      onProgress?.(40, 'uploading');
+      const filePath = `${user.id}/${textbookId}.pdf`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('textbook-pdfs')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('textbook-pdfs')
+        .getPublicUrl(filePath);
+
+      const pdfUrl = urlData.publicUrl;
+
+      // Create textbook record with pending status
+      onProgress?.(60, 'saving');
+      const { error: textbookError } = await supabase
+        .from('textbooks')
+        .insert({
+          id: textbookId,
+          user_id: user!.id,
           title: metadata.title,
           pdf_url: pdfUrl,
-          total_pages: 1, // Placeholder, will be updated after extraction
+          total_pages: 1, // Will be updated by Railway
           processing_status: 'pending',
           processing_progress: 0,
           ai_processing_status: 'pending',
@@ -477,21 +613,20 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
 
       if (textbookError) throw textbookError;
 
-      // Step 3: Load textbook immediately so user can view it
+      // Load textbook for viewing
       onProgress?.(90, 'done');
       await loadTextbooks();
       await loadTextbook(textbookId);
       
       onProgress?.(100, 'done');
-      toast.success('PDF uploaded! You can read it now. Processing text in background...', { duration: 5000 });
+      toast.success('PDF uploaded! Processing with OCR...', { duration: 5000 });
 
-      // Step 4: Start background processing (non-blocking, SERVER-SIDE)
+      // Trigger Railway extraction
       processTextbookInBackground(textbookId, filePath);
 
       return textbookId;
     } catch (error) {
-      console.error('[Textbook Upload] Error:', error);
-      toast.error('Failed to upload textbook');
+      console.error('[Fallback Upload] Error:', error);
       throw error;
     }
   };
