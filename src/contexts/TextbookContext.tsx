@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import type { UploadMetadata } from '../components/UploadDialog';
 import { fetchWithRetry } from '../lib/fetchWithRetry';
 import { extractTextFromPDF, extractMetadataOnly } from '../lib/pdfExtractor';
+import { useRealtimeEvents } from '../hooks/useRealtimeEvents';
+import { useAdaptivePolling } from '../hooks/useAdaptivePolling';
 
 interface Page {
   id: string;
@@ -64,6 +66,92 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
   const [currentAIContent, setCurrentAIContent] = useState<AIContent | null>(null);
   const [loading, setLoading] = useState(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 🔥 DAY 2: Realtime events for current textbook
+  const { isConnected: realtimeConnected, latestEvent } = useRealtimeEvents({
+    textbookId: currentTextbook?.id || '',
+    enabled: !!currentTextbook,
+    onEvent: (event) => {
+      console.log('[Realtime] Event received:', event.type);
+      
+      // Handle extraction progress
+      if (event.type === 'extraction_progress') {
+        setTextbooks((prev) =>
+          prev.map((tb) =>
+            tb.id === event.textbook_id
+              ? { ...tb, processing_progress: event.percentage }
+              : tb
+          )
+        );
+      }
+      
+      // Handle extraction complete
+      if (event.type === 'extraction_complete') {
+        toast.success(`✅ Text extraction complete! ${event.pages_extracted} pages ready.`);
+        loadTextbooks(); // Refresh textbook list
+      }
+      
+      // Handle AI page ready
+      if (event.type === 'ai_page_ready') {
+        if (event.page_number === currentPage) {
+          loadPageData(); // Refresh current page if AI is ready
+        }
+      }
+      
+      // Handle job failures
+      if (event.type === 'job_failed') {
+        if (!event.will_retry) {
+          toast.error(`Job failed: ${event.error}`);
+        }
+      }
+    },
+  });
+
+  // 🔥 DAY 2: Adaptive polling fallback (only when Realtime disconnected)
+  useAdaptivePolling({
+    fetchFn: async () => {
+      if (!currentTextbook) return null;
+      
+      const { data } = await supabase
+        .from('textbooks')
+        .select('processing_status, processing_progress, ai_processing_status, ai_processing_progress')
+        .eq('id', currentTextbook.id)
+        .single();
+      
+      return data;
+    },
+    onData: (data) => {
+      if (!data) return;
+      
+      // Update textbook in state
+      setTextbooks((prev) =>
+        prev.map((tb) =>
+          tb.id === currentTextbook?.id
+            ? {
+                ...tb,
+                processing_status: data.processing_status,
+                processing_progress: data.processing_progress,
+                ai_processing_status: data.ai_processing_status,
+                ai_processing_progress: data.ai_processing_progress,
+              }
+            : tb
+        )
+      );
+      
+      // Show milestone toasts (only when polling, not Realtime)
+      if (data.processing_status === 'completed' && currentTextbook?.processing_status !== 'completed') {
+        toast.success('Text extraction complete!');
+      }
+    },
+    options: {
+      enabled: !!currentTextbook,
+      realtimeConnected, // Pauses polling when Realtime works
+      initialInterval: 3000,
+      maxInterval: 30000,
+      backoffMultiplier: 2,
+      useJitter: true,
+    },
+  });
 
   // Helper: Ensure we have a valid session before making queries
   const ensureValidSession = async (): Promise<boolean> => {
