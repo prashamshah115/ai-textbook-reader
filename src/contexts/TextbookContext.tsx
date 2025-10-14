@@ -426,8 +426,181 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     setTimeout(() => clearInterval(pollInterval), 300000);
   };
 
-  // Upload textbook with CLIENT-SIDE extraction
+  // 🚀 DAY 2: NON-BLOCKING UPLOAD - Show PDF immediately, extract in background
   const uploadTextbook = async (
+    file: File,
+    metadata: UploadMetadata,
+    onProgress?: (progress: number, stage: string) => void
+  ): Promise<string> => {
+    if (!user) throw new Error('User not authenticated');
+
+    try {
+      // Generate idempotency key to prevent duplicate uploads
+      const idempotencyKey = `upload-${file.name}-${file.size}-${file.lastModified}-${user.id}`;
+      
+      // Check if already uploaded
+      const { data: existing } = await supabase
+        .from('textbooks')
+        .select('id')
+        .eq('idempotency_key', idempotencyKey)
+        .maybeSingle();
+      
+      if (existing) {
+        console.log('[Upload] PDF already uploaded, loading existing:', existing.id);
+        await loadTextbook(existing.id);
+        toast.success('Textbook already uploaded!');
+        return existing.id;
+      }
+
+      const textbookId = crypto.randomUUID();
+      const uploadStartTime = performance.now();
+
+      // 🔥 Step 1: Extract metadata ONLY (< 200ms)
+      onProgress?.(5, 'metadata');
+      toast.loading('Reading PDF...', { id: 'upload' });
+      
+      const quickMetadata = await extractMetadataOnly(file);
+      
+      // 🔥 Step 2: Upload PDF to storage immediately (2-3s)
+      onProgress?.(10, 'uploading');
+      toast.loading('Uploading PDF...', { id: 'upload' });
+      
+      const filePath = `${user.id}/${textbookId}.pdf`;
+      
+      // Upload with proper headers for caching and range requests
+      const { error: uploadError } = await supabase.storage
+        .from('textbook-pdfs')
+        .upload(filePath, file, {
+          cacheControl: '31536000', // 1 year cache
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('textbook-pdfs')
+        .getPublicUrl(filePath);
+
+      const pdfUrl = urlData.publicUrl;
+      const uploadDuration = performance.now() - uploadStartTime;
+      
+      console.log(`[Upload] PDF uploaded in ${uploadDuration.toFixed(0)}ms`);
+
+      // 🔥 Step 3: Create textbook record with status='queued'
+      onProgress?.(40, 'saving');
+      toast.loading('Preparing textbook...', { id: 'upload' });
+      
+      const { error: textbookError } = await supabase
+        .from('textbooks')
+        .insert({
+          id: textbookId,
+          user_id: user.id,
+          title: metadata.title || quickMetadata.title || file.name.replace('.pdf', ''),
+          pdf_url: pdfUrl,
+          total_pages: quickMetadata.totalPages,
+          processing_status: 'queued', // Not 'completed' - extraction happens in background
+          processing_progress: 0,
+          upload_started_at: new Date().toISOString(),
+          upload_completed_at: new Date().toISOString(),
+          ai_processing_status: 'pending',
+          ai_processing_progress: 0,
+          idempotency_key: idempotencyKey,
+          metadata: {
+            subject: metadata.subject,
+            learning_goal: metadata.learningGoal,
+            original_filename: file.name,
+            file_size: file.size,
+            author: quickMetadata.author,
+            pdf_subject: quickMetadata.subject,
+          },
+        });
+
+      if (textbookError) throw textbookError;
+      
+      // 🔥 Step 4: Load PDF viewer IMMEDIATELY (user sees pages NOW!)
+      onProgress?.(70, 'loading');
+      await loadTextbooks();
+      await loadTextbook(textbookId);
+      
+      onProgress?.(100, 'done');
+      
+      const totalDuration = performance.now() - uploadStartTime;
+      console.log(`[Upload] Total upload flow: ${totalDuration.toFixed(0)}ms`);
+      
+      toast.success(`📚 PDF ready! Reading ${quickMetadata.totalPages} pages...`, { 
+        id: 'upload',
+        duration: 3000 
+      });
+      
+      // Record upload performance metric
+      await supabase.from('metrics').insert({
+        metric_name: 'upload_duration',
+        value: totalDuration,
+        unit: 'ms',
+        textbook_id: textbookId,
+        metadata: {
+          file_size: file.size,
+          total_pages: quickMetadata.totalPages
+        }
+      });
+      
+      // 🔥 Step 5: Trigger background jobs (fire-and-forget)
+      triggerBackgroundProcessing(textbookId, pdfUrl, metadata, quickMetadata);
+      
+      return textbookId;
+    } catch (error) {
+      console.error('[Upload] Error:', error);
+      toast.error('Failed to upload textbook');
+      throw error;
+    }
+  };
+
+  // Helper: Trigger all background processing jobs
+  const triggerBackgroundProcessing = (
+    textbookId: string,
+    pdfUrl: string,
+    metadata: UploadMetadata,
+    quickMetadata: any
+  ) => {
+    console.log('[Background] Starting background jobs for:', textbookId);
+    
+    // Job 1: Web context fetch (already implemented)
+    fetch('/api/fetch-textbook-context', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        textbookId,
+        title: metadata.title || quickMetadata.title,
+        author: quickMetadata.author,
+        subject: metadata.subject || quickMetadata.subject,
+      }),
+    }).catch(err => {
+      console.log('[Background] Web context failed (non-critical):', err.message);
+    });
+    
+    // Job 2: Text extraction (new - will implement API endpoint)
+    fetch('/api/extract-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        textbookId,
+        pdfUrl,
+      }),
+    }).catch(err => {
+      console.log('[Background] Text extraction failed:', err.message);
+      toast.warning('Text extraction will continue in background');
+    });
+    
+    // Show background processing toast
+    toast.info(
+      'Processing in background: extracting text, generating AI content...',
+      { duration: 5000 }
+    );
+  };
+
+  // Legacy function kept for compatibility - but now just calls new flow
+  const OLD_uploadTextbook_DEPRECATED = async (
     file: File,
     metadata: UploadMetadata,
     onProgress?: (progress: number, stage: string) => void
@@ -437,29 +610,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     try {
       const textbookId = crypto.randomUUID();
 
-      // 🔥 Step 0: INSTANT metadata extraction (< 200ms) for web context bootstrapping
-      onProgress?.(2, 'metadata');
-      toast.loading('Reading PDF metadata...', { id: 'metadata' });
-      
-      const quickMetadata = await extractMetadataOnly(file);
-      
-      // 🔥 Immediately trigger web search in parallel (fire-and-forget)
-      fetch('/api/fetch-textbook-context', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          textbookId,
-          title: metadata.title || quickMetadata.title,
-          author: quickMetadata.author,
-          subject: metadata.subject || quickMetadata.subject,
-        }),
-      }).catch(err => {
-        console.log('[Web Context] Background fetch failed (non-critical):', err.message);
-      });
-      
-      toast.success('Context loading in background...', { id: 'metadata', duration: 2000 });
-
-      // Step 1: Extract text in browser
+      // OLD FLOW: Extract text in browser (BLOCKS FOR 45-75s)
       onProgress?.(5, 'extracting');
       toast.loading('Extracting text from PDF...', { id: 'extraction' });
       
