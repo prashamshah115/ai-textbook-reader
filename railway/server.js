@@ -100,19 +100,24 @@ app.post('/extract', authenticateApiKey, async (req, res) => {
       processed: false,
     }));
 
-    // Insert pages in batches
+    // 🔥 DAY 4: Insert pages in batches using UPSERT for idempotency
     const batchSize = 100;
     let processedCount = 0;
 
     for (let i = 0; i < pageRecords.length; i += batchSize) {
       const batch = pageRecords.slice(i, i + batchSize);
       
+      // Use upsert with unique constraint (textbook_id, page_number)
+      // This prevents duplicates if job retries or runs multiple times
       const { error: insertError } = await supabase
         .from('pages')
-        .insert(batch);
+        .upsert(batch, { 
+          onConflict: 'textbook_id,page_number',
+          ignoreDuplicates: false // Update if already exists
+        });
 
       if (insertError) {
-        console.error(`[Extraction Service] Insert error:`, insertError);
+        console.error(`[Extraction Service] Upsert error:`, insertError);
         throw insertError;
       }
 
