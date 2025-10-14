@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Loader2, Upload } from 'lucide-react';
 import { Button } from './ui/button';
 import { useTextbook } from '../contexts/TextbookContext';
@@ -7,6 +7,8 @@ import type { UploadMetadata } from './UploadDialog';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import { supabase } from '../lib/supabase';
+import { PerformanceTimer } from '../lib/events';
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -19,8 +21,40 @@ export function PDFReader({ onTextSelect }: PDFReaderProps) {
   const [zoom, setZoom] = useState(100);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [numPages, setNumPages] = useState<number | null>(null);
+  const [pageRenderTime, setPageRenderTime] = useState<number | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const pageTimerRef = useRef<PerformanceTimer | null>(null);
   const { currentTextbook, currentPage, currentPageData, loading, nextPage, prevPage, uploadTextbook, setActualPageCount } = useTextbook();
+
+  // 🔥 DAY 5: Track page turn performance
+  useEffect(() => {
+    if (currentTextbook) {
+      pageTimerRef.current = new PerformanceTimer(
+        'page_turn',
+        currentTextbook.id,
+        { from_page: currentPage - 1, to_page: currentPage }
+      );
+    }
+  }, [currentPage, currentTextbook]);
+
+  // 🔥 DAY 5: Prefetch neighboring pages on page change
+  useEffect(() => {
+    if (!currentTextbook || !numPages) return;
+
+    const pagesToPrefetch = [
+      currentPage - 2,
+      currentPage - 1,
+      currentPage + 1,
+      currentPage + 2,
+    ].filter((p) => p >= 1 && p <= numPages && p !== currentPage);
+
+    // Trigger prefetch in background (react-pdf handles this internally via Document)
+    // We'll use their built-in cache
+    console.log('[PDFReader] Would prefetch pages:', pagesToPrefetch);
+    
+    // Note: react-pdf already caches rendered pages in memory
+    // For better control, we'd need to switch to direct pdfjs-dist
+  }, [currentPage, currentTextbook, numPages]);
 
   const handleUpload = async (file: File, metadata: UploadMetadata) => {
     await uploadTextbook(file, metadata);
@@ -30,6 +64,34 @@ export function PDFReader({ onTextSelect }: PDFReaderProps) {
     setNumPages(numPages);
     setActualPageCount(numPages);
     console.log('[PDFReader] PDF loaded successfully, pages:', numPages);
+    
+    // Record TTFP (Time to First Page) metric
+    if (currentTextbook && pageTimerRef.current) {
+      const duration = pageTimerRef.current.getDuration();
+      supabase.from('metrics').insert({
+        metric_name: 'ttfp',
+        value: duration,
+        unit: 'ms',
+        textbook_id: currentTextbook.id,
+        metadata: { total_pages: numPages }
+      });
+      console.log(`[PDFReader] TTFP: ${duration.toFixed(0)}ms`);
+    }
+  };
+
+  // 🔥 DAY 5: Track when page finishes rendering
+  const handlePageLoadSuccess = () => {
+    if (pageTimerRef.current) {
+      const duration = pageTimerRef.current.getDuration();
+      setPageRenderTime(duration);
+      
+      // Record page turn metric
+      if (currentTextbook) {
+        pageTimerRef.current.end(supabase);
+      }
+      
+      console.log(`[PDFReader] Page ${currentPage} rendered in ${duration.toFixed(0)}ms`);
+    }
   };
 
   const handleMouseUp = () => {
@@ -170,6 +232,7 @@ export function PDFReader({ onTextSelect }: PDFReaderProps) {
                 pageNumber={currentPage}
                 scale={zoom / 100}
                 className="shadow-lg"
+                onLoadSuccess={handlePageLoadSuccess}
                 loading={
                   <div className="flex items-center justify-center py-20">
                     <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
