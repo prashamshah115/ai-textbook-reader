@@ -4,7 +4,7 @@ import { useAuth } from './AuthContext';
 import { toast } from 'sonner';
 import type { UploadMetadata } from '../components/UploadDialog';
 import { fetchWithRetry } from '../lib/fetchWithRetry';
-import { extractTextFromPDF } from '../lib/pdfExtractor';
+import { extractTextFromPDF, extractMetadataOnly } from '../lib/pdfExtractor';
 
 interface Page {
   id: string;
@@ -426,7 +426,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     setTimeout(() => clearInterval(pollInterval), 300000);
   };
 
-  // Upload textbook with CLIENT-SIDE extraction (2-5 seconds!)
+  // Upload textbook with CLIENT-SIDE extraction
   const uploadTextbook = async (
     file: File,
     metadata: UploadMetadata,
@@ -437,7 +437,29 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     try {
       const textbookId = crypto.randomUUID();
 
-      // Step 1: Extract text in browser (INSTANT - 2-5 seconds)
+      // 🔥 Step 0: INSTANT metadata extraction (< 200ms) for web context bootstrapping
+      onProgress?.(2, 'metadata');
+      toast.loading('Reading PDF metadata...', { id: 'metadata' });
+      
+      const quickMetadata = await extractMetadataOnly(file);
+      
+      // 🔥 Immediately trigger web search in parallel (fire-and-forget)
+      fetch('/api/fetch-textbook-context', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          textbookId,
+          title: metadata.title || quickMetadata.title,
+          author: quickMetadata.author,
+          subject: metadata.subject || quickMetadata.subject,
+        }),
+      }).catch(err => {
+        console.log('[Web Context] Background fetch failed (non-critical):', err.message);
+      });
+      
+      toast.success('Context loading in background...', { id: 'metadata', duration: 2000 });
+
+      // Step 1: Extract text in browser
       onProgress?.(5, 'extracting');
       toast.loading('Extracting text from PDF...', { id: 'extraction' });
       

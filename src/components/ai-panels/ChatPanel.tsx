@@ -1,16 +1,38 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Eye, EyeOff } from 'lucide-react';
+import { Send, Loader2, Eye, EyeOff, CheckCircle, Clock } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Textarea } from '../ui/textarea';
 import { useChat } from '../../contexts/ChatContext';
 import { useTextbook } from '../../contexts/TextbookContext';
+import { supabase } from '../../lib/supabase';
 
 export function ChatPanel() {
   const { messages, loading, sendMessage, currentContext } = useChat();
-  const { currentPage } = useTextbook();
+  const { currentPage, currentTextbook } = useTextbook();
   const [input, setInput] = useState('');
   const [showContext, setShowContext] = useState(false);
+  const [contextReady, setContextReady] = useState(false);
+  const [contextLoading, setContextLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Check web context status
+  useEffect(() => {
+    if (currentTextbook) {
+      setContextLoading(true);
+      supabase
+        .from('textbook_web_context')
+        .select('status')
+        .eq('textbook_id', currentTextbook.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          setContextReady(data?.status === 'fetched');
+          setContextLoading(false);
+        })
+        .catch(() => {
+          setContextLoading(false);
+        });
+    }
+  }, [currentTextbook]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -62,6 +84,30 @@ export function ChatPanel() {
           <pre className="text-xs bg-background p-2 rounded overflow-auto max-h-32 border border-border">
             {currentContext}
           </pre>
+        </div>
+      )}
+
+      {/* 🔥 NEW: Context Status Indicator */}
+      {contextLoading ? (
+        <div className="border-b border-border px-3 py-2 bg-accent/5">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            <span>Checking textbook context...</span>
+          </div>
+        </div>
+      ) : contextReady ? (
+        <div className="border-b border-border px-3 py-2 bg-green-50 dark:bg-green-950/20">
+          <div className="flex items-center gap-2 text-xs text-green-700 dark:text-green-400">
+            <CheckCircle className="w-3 h-3" />
+            <span>Textbook context ready • Ask anything now</span>
+          </div>
+        </div>
+      ) : (
+        <div className="border-b border-border px-3 py-2 bg-amber-50 dark:bg-amber-950/20">
+          <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+            <Clock className="w-3 h-3" />
+            <span>Loading textbook background context...</span>
+          </div>
         </div>
       )}
 

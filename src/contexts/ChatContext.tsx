@@ -81,6 +81,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
 
     try {
+      // 🔥 NEW: Fetch web context FIRST (cached, instant)
+      const { data: webContext } = await supabase
+        .from('textbook_web_context')
+        .select('*')
+        .eq('textbook_id', currentTextbook!.id)
+        .maybeSingle();
+
+      if (webContext && webContext.web_summary) {
+        context.textbookOverview = webContext.web_summary;
+        context.keyTopics = webContext.key_topics || [];
+        context.textbookAuthor = webContext.author;
+        context.textbookTitle = webContext.title;
+      }
+
       // Get neighboring pages for broader context
       const [prevPageResult, nextPageResult] = await Promise.all([
         supabase

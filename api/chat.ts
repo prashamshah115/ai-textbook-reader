@@ -17,6 +17,17 @@ interface ChatRequest {
     pageText?: string;
     summary?: string;
     page: number;
+    // Web context fields
+    textbookOverview?: string;
+    textbookAuthor?: string;
+    textbookTitle?: string;
+    keyTopics?: string[];
+    // AI processed content
+    pageSummary?: string;
+    keyConcepts?: any;
+    // Neighboring pages
+    previousPageText?: string;
+    nextPageText?: string;
   };
   conversationId: string;
 }
@@ -47,17 +58,15 @@ export default async function handler(req: Request) {
       .eq('user_id', conversation.user_id)
       .single();
 
-    // Build system prompt
+    // Build system prompt with web context bootstrapping
     const systemPrompt = `You are a helpful tutor assisting with textbook comprehension.
 
 Student Level: ${preferences?.target_level || 'intermediate'}
 Student Goal: ${preferences?.learning_goals || 'Understanding the material'}
 
-Current Context (Page ${context.page}):
-${context.summary ? `Summary: ${context.summary}\n` : ''}
-${context.pageText ? `Content: ${context.pageText.slice(0, 2000)}...` : ''}
-
-Provide clear, helpful responses that align with the student's level and goals.`;
+${context.textbookOverview ? `📚 Textbook Overview (from web):\n${context.textbookOverview}\n\n` : ''}${context.textbookAuthor ? `Author: ${context.textbookAuthor}\n` : ''}${context.textbookTitle ? `Title: ${context.textbookTitle}\n` : ''}${context.keyTopics && context.keyTopics.length > 0 ? `Key Topics: ${context.keyTopics.join(', ')}\n\n` : ''}Current Context (Page ${context.page}):
+${context.pageSummary ? `AI Summary: ${context.pageSummary}\n` : ''}${context.pageText ? `Page Content: ${context.pageText.slice(0, 2000)}...\n` : ''}${context.previousPageText ? `Previous Page Context: ${context.previousPageText.slice(0, 400)}...\n` : ''}
+Provide clear, helpful responses that align with the student's level and goals. When full page text is available, prioritize it over the general overview.`;
 
     // Call OpenAI
     const completion = await openai.chat.completions.create({

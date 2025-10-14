@@ -24,6 +24,32 @@ export interface PDFMetadata {
 }
 
 /**
+ * Extract ONLY metadata from PDF (fast - < 200ms)
+ * Use this for immediate context bootstrapping before full text extraction
+ */
+export async function extractMetadataOnly(
+  file: File
+): Promise<PDFMetadata> {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+
+    const metadata = await pdf.getMetadata();
+    
+    return {
+      title: metadata.info?.Title || file.name.replace('.pdf', ''),
+      author: metadata.info?.Author,
+      subject: metadata.info?.Subject,
+      totalPages: pdf.numPages,
+    };
+  } catch (error) {
+    console.error('[Metadata Extract] Error:', error);
+    throw new Error('Failed to extract PDF metadata');
+  }
+}
+
+/**
  * Extract text from all pages of a PDF file
  */
 export async function extractTextFromPDF(
