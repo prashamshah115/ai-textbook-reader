@@ -244,12 +244,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                   const latency = performance.now() - firstTokenTimer;
                   console.log(`[Chat] First token in ${latency.toFixed(0)}ms`);
                   
-                  // Record metric
+                  // Record metric (if table exists)
                   supabase.from('metrics').insert({
                     metric_name: 'chat_first_token',
                     value: latency,
                     unit: 'ms',
                     textbook_id: currentTextbook?.id,
+                  }).catch(() => {
+                    console.log('[Chat] Metrics table not available yet');
                   });
                   
                   firstTokenReceived = true;

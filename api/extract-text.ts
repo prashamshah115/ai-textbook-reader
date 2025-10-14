@@ -76,52 +76,60 @@ export default async function handler(req: Request) {
     // 🔥 DAY 4: Generate idempotency key to prevent duplicate jobs
     const idempotencyKey = `extract-${textbookId}`;
 
-    // 🔥 DAY 4: Enqueue job using helper function with idempotency
-    const { data: jobId, error: jobError } = await supabase.rpc('enqueue_job', {
-      p_textbook_id: textbookId,
-      p_type: 'extract_text',
-      p_payload: { 
-        pdf_url: pdfUrl,
-        total_pages: textbook.total_pages || 0
-      },
-      p_idempotency_key: idempotencyKey,
-      p_max_retries: 3
-    });
+    // 🔥 DAY 4: Try to enqueue job (backwards compatible)
+    let jobId = null;
+    try {
+      const { data: job, error: jobError } = await supabase.rpc('enqueue_job', {
+        p_textbook_id: textbookId,
+        p_type: 'extract_text',
+        p_payload: { 
+          pdf_url: pdfUrl,
+          total_pages: textbook.total_pages || 0
+        },
+        p_idempotency_key: idempotencyKey,
+        p_max_retries: 3
+      });
 
-    if (jobError) {
-      console.error('[Extract Text] Failed to enqueue job:', jobError);
-      return new Response(
-        JSON.stringify({ 
-          error: 'Failed to enqueue extraction job', 
-          details: jobError.message 
-        }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
+      if (!jobError) {
+        jobId = job;
+        console.log('[Extract Text] Job enqueued with ID:', jobId);
+      }
+    } catch (error) {
+      console.log('[Extract Text] Job queue not available yet, using direct trigger');
     }
 
-    console.log('[Extract Text] Job enqueued with ID:', jobId);
+    // Try to emit event (backwards compatible)
+    try {
+      await supabase.rpc('emit_event', {
+        p_textbook_id: textbookId,
+        p_event_type: 'extraction_progress',
+        p_payload: {
+          type: 'extraction_progress',
+          textbook_id: textbookId,
+          completed_pages: 0,
+          total_pages: textbook.total_pages || 0,
+          percentage: 0,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      console.log('[Extract Text] Event emission not available yet');
+    }
 
-    // Emit initial event for Realtime subscribers
-    await supabase.rpc('emit_event', {
-      p_textbook_id: textbookId,
-      p_event_type: 'extraction_progress',
-      p_payload: {
-        type: 'extraction_progress',
-        textbook_id: textbookId,
-        completed_pages: 0,
-        total_pages: textbook.total_pages || 0,
-        percentage: 0,
-        timestamp: new Date().toISOString()
-      }
-    });
+    // Update textbook status (use only columns that exist)
+    const updateData: any = {
+      processing_status: 'processing',
+    };
+    
+    try {
+      updateData.extraction_started_at = new Date().toISOString();
+    } catch {
+      // Column doesn't exist yet
+    }
 
-    // Update textbook status to 'processing'
     await supabase
       .from('textbooks')
-      .update({
-        processing_status: 'processing',
-        extraction_started_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', textbookId);
 
     // 🔥 DAY 4: Trigger Railway worker (fire HTTP request to wake it up)

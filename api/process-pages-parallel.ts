@@ -209,32 +209,40 @@ async function generateAIContentForPage(textbookId: string, pageNumber: number) 
       throw saveError;
     }
 
-    // Emit event for Realtime
-    await supabase.rpc('emit_event', {
-      p_textbook_id: textbookId,
-      p_event_type: 'ai_page_ready',
-      p_payload: {
-        type: 'ai_page_ready',
-        textbook_id: textbookId,
-        page_number: pageNumber,
-        has_summary: !!summary,
-        has_questions: parsedQuestions.length > 0,
-        has_applications: parsedApplications.length > 0,
-        timestamp: new Date().toISOString(),
-      },
-    });
+    // Emit event for Realtime (if available)
+    try {
+      await supabase.rpc('emit_event', {
+        p_textbook_id: textbookId,
+        p_event_type: 'ai_page_ready',
+        p_payload: {
+          type: 'ai_page_ready',
+          textbook_id: textbookId,
+          page_number: pageNumber,
+          has_summary: !!summary,
+          has_questions: parsedQuestions.length > 0,
+          has_applications: parsedApplications.length > 0,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      console.log('[AI Gen] Event emission not available yet');
+    }
 
     const duration = Date.now() - startTime;
     console.log(`[AI Gen] Page ${pageNumber} complete in ${duration}ms`);
 
-    // Record metric
-    await supabase.from('metrics').insert({
-      metric_name: 'ai_generation_duration',
-      value: duration,
-      unit: 'ms',
-      textbook_id: textbookId,
-      metadata: { page_number: pageNumber, text_length: pageText.length },
-    });
+    // Record metric (if table exists)
+    try {
+      await supabase.from('metrics').insert({
+        metric_name: 'ai_generation_duration',
+        value: duration,
+        unit: 'ms',
+        textbook_id: textbookId,
+        metadata: { page_number: pageNumber, text_length: pageText.length },
+      });
+    } catch (error) {
+      console.log('[AI Gen] Metrics table not available yet');
+    }
 
     return { pageNumber, duration, success: true };
   } catch (error) {

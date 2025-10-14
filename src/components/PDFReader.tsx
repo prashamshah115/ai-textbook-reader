@@ -65,7 +65,7 @@ export function PDFReader({ onTextSelect }: PDFReaderProps) {
     setActualPageCount(numPages);
     console.log('[PDFReader] PDF loaded successfully, pages:', numPages);
     
-    // Record TTFP (Time to First Page) metric
+    // Record TTFP (Time to First Page) metric (if table exists)
     if (currentTextbook && pageTimerRef.current) {
       const duration = pageTimerRef.current.getDuration();
       supabase.from('metrics').insert({
@@ -74,6 +74,8 @@ export function PDFReader({ onTextSelect }: PDFReaderProps) {
         unit: 'ms',
         textbook_id: currentTextbook.id,
         metadata: { total_pages: numPages }
+      }).catch(() => {
+        console.log('[PDFReader] Metrics table not available yet');
       });
       console.log(`[PDFReader] TTFP: ${duration.toFixed(0)}ms`);
     }

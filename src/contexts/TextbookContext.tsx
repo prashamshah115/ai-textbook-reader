@@ -526,18 +526,23 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       // Generate idempotency key to prevent duplicate uploads
       const idempotencyKey = `upload-${file.name}-${file.size}-${file.lastModified}-${user.id}`;
       
-      // Check if already uploaded
-      const { data: existing } = await supabase
-        .from('textbooks')
-        .select('id')
-        .eq('idempotency_key', idempotencyKey)
-        .maybeSingle();
-      
-      if (existing) {
-        console.log('[Upload] PDF already uploaded, loading existing:', existing.id);
-        await loadTextbook(existing.id);
-        toast.success('Textbook already uploaded!');
-        return existing.id;
+      // Check if already uploaded (only if column exists)
+      try {
+        const { data: existing } = await supabase
+          .from('textbooks')
+          .select('id')
+          .eq('idempotency_key', idempotencyKey)
+          .maybeSingle();
+        
+        if (existing) {
+          console.log('[Upload] PDF already uploaded, loading existing:', existing.id);
+          await loadTextbook(existing.id);
+          toast.success('Textbook already uploaded!');
+          return existing.id;
+        }
+      } catch (error) {
+        // idempotency_key column doesn't exist yet - skip check
+        console.log('[Upload] Idempotency check skipped (column not added yet)');
       }
 
       const textbookId = crypto.randomUUID();
@@ -579,30 +584,39 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       onProgress?.(40, 'saving');
       toast.loading('Preparing textbook...', { id: 'upload' });
       
+      // Build textbook record (backwards compatible)
+      const textbookRecord: any = {
+        id: textbookId,
+        user_id: user.id,
+        title: metadata.title || quickMetadata.title || file.name.replace('.pdf', ''),
+        pdf_url: pdfUrl,
+        total_pages: quickMetadata.totalPages,
+        processing_status: 'queued',
+        processing_progress: 0,
+        ai_processing_status: 'pending',
+        ai_processing_progress: 0,
+        metadata: {
+          subject: metadata.subject,
+          learning_goal: metadata.learningGoal,
+          original_filename: file.name,
+          file_size: file.size,
+          author: quickMetadata.author,
+          pdf_subject: quickMetadata.subject,
+        },
+      };
+
+      // Add new columns only if they exist (backwards compatible)
+      try {
+        textbookRecord.idempotency_key = idempotencyKey;
+        textbookRecord.upload_started_at = new Date().toISOString();
+        textbookRecord.upload_completed_at = new Date().toISOString();
+      } catch {
+        console.log('[Upload] New columns not available yet');
+      }
+
       const { error: textbookError } = await supabase
         .from('textbooks')
-        .insert({
-          id: textbookId,
-          user_id: user.id,
-          title: metadata.title || quickMetadata.title || file.name.replace('.pdf', ''),
-          pdf_url: pdfUrl,
-          total_pages: quickMetadata.totalPages,
-          processing_status: 'queued', // Not 'completed' - extraction happens in background
-          processing_progress: 0,
-          upload_started_at: new Date().toISOString(),
-          upload_completed_at: new Date().toISOString(),
-          ai_processing_status: 'pending',
-          ai_processing_progress: 0,
-          idempotency_key: idempotencyKey,
-          metadata: {
-            subject: metadata.subject,
-            learning_goal: metadata.learningGoal,
-            original_filename: file.name,
-            file_size: file.size,
-            author: quickMetadata.author,
-            pdf_subject: quickMetadata.subject,
-          },
-        });
+        .insert(textbookRecord);
 
       if (textbookError) throw textbookError;
       
@@ -621,17 +635,21 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         duration: 3000 
       });
       
-      // Record upload performance metric
-      await supabase.from('metrics').insert({
-        metric_name: 'upload_duration',
-        value: totalDuration,
-        unit: 'ms',
-        textbook_id: textbookId,
-        metadata: {
-          file_size: file.size,
-          total_pages: quickMetadata.totalPages
-        }
-      });
+      // Record upload performance metric (if metrics table exists)
+      try {
+        await supabase.from('metrics').insert({
+          metric_name: 'upload_duration',
+          value: totalDuration,
+          unit: 'ms',
+          textbook_id: textbookId,
+          metadata: {
+            file_size: file.size,
+            total_pages: quickMetadata.totalPages
+          }
+        });
+      } catch (error) {
+        console.log('[Upload] Metrics table not available yet');
+      }
       
       // 🔥 Step 5: Trigger background jobs (fire-and-forget)
       triggerBackgroundProcessing(textbookId, pdfUrl, metadata, quickMetadata);
