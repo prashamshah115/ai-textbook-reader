@@ -55,6 +55,8 @@ app.post('/extract', authenticateApiKey, async (req, res) => {
 
   console.log(`[Extraction Service] Starting extraction for textbook ${textbookId}`);
 
+  const startTime = Date.now(); // Track duration for metrics
+
   try {
     // Update status to processing
     await supabase
@@ -62,7 +64,8 @@ app.post('/extract', authenticateApiKey, async (req, res) => {
       .update({ 
         processing_status: 'processing',
         processing_started_at: new Date().toISOString(),
-        processing_progress: 0
+        processing_progress: 0,
+        extraction_started_at: new Date().toISOString()
       })
       .eq('id', textbookId);
 
@@ -116,7 +119,7 @@ app.post('/extract', authenticateApiKey, async (req, res) => {
       processedCount += batch.length;
       const progress = Math.round((processedCount / totalPages) * 100);
 
-      // Update progress
+      // Update progress in database
       await supabase
         .from('textbooks')
         .update({ 
@@ -128,6 +131,21 @@ app.post('/extract', authenticateApiKey, async (req, res) => {
         })
         .eq('id', textbookId);
 
+      // 🔥 DAY 3: Emit Realtime event for progress
+      await supabase.rpc('emit_event', {
+        p_textbook_id: textbookId,
+        p_event_type: 'extraction_progress',
+        p_payload: {
+          type: 'extraction_progress',
+          textbook_id: textbookId,
+          completed_pages: processedCount,
+          total_pages: totalPages,
+          percentage: progress,
+          current_page: processedCount,
+          timestamp: new Date().toISOString()
+        }
+      });
+
       console.log(`[Extraction Service] Progress: ${progress}% (${processedCount}/${totalPages})`);
     }
 
@@ -138,9 +156,24 @@ app.post('/extract', authenticateApiKey, async (req, res) => {
         processing_status: 'completed',
         processing_completed_at: new Date().toISOString(),
         processing_progress: 100,
-        total_pages: totalPages
+        total_pages: totalPages,
+        extraction_completed_at: new Date().toISOString()
       })
       .eq('id', textbookId);
+
+    // 🔥 DAY 3: Emit extraction complete event
+    const endTime = Date.now();
+    await supabase.rpc('emit_event', {
+      p_textbook_id: textbookId,
+      p_event_type: 'extraction_complete',
+      p_payload: {
+        type: 'extraction_complete',
+        textbook_id: textbookId,
+        pages_extracted: totalPages,
+        duration_ms: endTime - startTime,
+        timestamp: new Date().toISOString()
+      }
+    });
 
     console.log(`[Extraction Service] Completed extraction for textbook ${textbookId}`);
 
@@ -162,6 +195,22 @@ app.post('/extract', authenticateApiKey, async (req, res) => {
         processing_error: error.message || 'Unknown error'
       })
       .eq('id', textbookId);
+
+    // 🔥 DAY 3: Emit job failed event
+    await supabase.rpc('emit_event', {
+      p_textbook_id: textbookId,
+      p_event_type: 'job_failed',
+      p_payload: {
+        type: 'job_failed',
+        textbook_id: textbookId,
+        job_id: textbookId, // In this case, extraction job is tied to textbook
+        job_type: 'extract_text',
+        error: error.message || 'Unknown error',
+        attempt: 1,
+        will_retry: false,
+        timestamp: new Date().toISOString()
+      }
+    });
 
     res.status(500).json({ 
       error: 'Extraction failed',
