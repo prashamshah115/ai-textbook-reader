@@ -653,7 +653,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
   ) => {
     console.log('[Background] Starting background jobs for:', textbookId);
     
-    // Job 1: Web context fetch (already implemented)
+    // Job 1: Web context fetch
     fetch('/api/fetch-textbook-context', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -667,7 +667,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       console.log('[Background] Web context failed (non-critical):', err.message);
     });
     
-    // Job 2: Text extraction (new - will implement API endpoint)
+    // Job 2: Text extraction
     fetch('/api/extract-text', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -679,6 +679,33 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       console.log('[Background] Text extraction failed:', err.message);
       toast.warning('Text extraction will continue in background');
     });
+    
+    // 🔥 DAY 7: Job 3 - Process first 10 pages immediately (parallel)
+    const totalPages = quickMetadata.totalPages || 0;
+    const firstPages = Array.from({ length: Math.min(10, totalPages) }, (_, i) => i + 1);
+    
+    if (firstPages.length > 0) {
+      fetch('/api/process-pages-parallel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          textbookId,
+          pageNumbers: firstPages,
+        }),
+      })
+        .then(async (response) => {
+          if (response.ok) {
+            const result = await response.json();
+            console.log(`[Background] Processed ${result.processed} pages with AI`);
+            toast.success(`AI features ready for first ${result.processed} pages!`, {
+              duration: 4000,
+            });
+          }
+        })
+        .catch(err => {
+          console.log('[Background] Parallel AI failed (non-critical):', err.message);
+        });
+    }
     
     // Show background processing toast
     toast.info(

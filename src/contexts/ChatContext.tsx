@@ -177,49 +177,107 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       // Store context for viewer
       setCurrentContext(JSON.stringify(richContext, null, 2));
 
-      // Call chat API with 30s timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      // 🔥 DAY 6: Stream chat responses using SSE
+      const firstTokenTimer = performance.now();
+      let fullResponse = '';
+      let firstTokenReceived = false;
 
-      let response;
-      try {
-        response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: content,
-            context: richContext,
-            conversationId,
-          }),
-          signal: controller.signal,
-        });
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: content,
+          context: richContext,
+          conversationId,
+        }),
+      });
 
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          throw new Error('Failed to get response');
-        }
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-        if (fetchError.name === 'AbortError') {
-          throw new Error('Request timed out. Please try again.');
-        }
-        throw fetchError;
+      if (!response.ok) {
+        throw new Error('Failed to get response');
       }
 
-      const data = await response.json();
-      const aiMessage: ChatMessage = {
+      // Read SSE stream
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error('No response stream');
+      }
+
+      // Create placeholder AI message for streaming updates
+      const aiMessageIndex = messages.length + 1;
+      const streamingMessage: ChatMessage = {
         role: 'assistant',
-        content: data.response,
+        content: '',
         timestamp: new Date().toISOString(),
       };
 
-      const updatedMessages = [...messages, userMessage, aiMessage];
-      setMessages(updatedMessages);
+      setMessages((prev) => [...prev, streamingMessage]);
 
-      // Save to database
+      // Read stream chunks
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+
+            if (data === '[DONE]') {
+              console.log('[Chat Stream] Complete');
+              break;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+
+              if (parsed.content) {
+                fullResponse += parsed.content;
+
+                // Track first token
+                if (!firstTokenReceived) {
+                  const latency = performance.now() - firstTokenTimer;
+                  console.log(`[Chat] First token in ${latency.toFixed(0)}ms`);
+                  
+                  // Record metric
+                  supabase.from('metrics').insert({
+                    metric_name: 'chat_first_token',
+                    value: latency,
+                    unit: 'ms',
+                    textbook_id: currentTextbook?.id,
+                  });
+                  
+                  firstTokenReceived = true;
+                }
+
+                // Update streaming message
+                setMessages((prev) =>
+                  prev.map((msg, idx) =>
+                    idx === aiMessageIndex
+                      ? { ...msg, content: fullResponse }
+                      : msg
+                  )
+                );
+              }
+            } catch (e) {
+              console.error('[Chat Stream] Parse error:', e);
+            }
+          }
+        }
+      }
+
+      // Save final conversation to database
+      const updatedMessages = [...messages, userMessage, {
+        role: 'assistant' as const,
+        content: fullResponse,
+        timestamp: new Date().toISOString(),
+      }];
+
       await supabase
         .from('chat_conversations')
         .update({

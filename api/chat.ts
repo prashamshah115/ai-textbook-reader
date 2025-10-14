@@ -68,28 +68,62 @@ ${context.textbookOverview ? `📚 Textbook Overview (from web):\n${context.text
 ${context.pageSummary ? `AI Summary: ${context.pageSummary}\n` : ''}${context.pageText ? `Page Content: ${context.pageText.slice(0, 2000)}...\n` : ''}${context.previousPageText ? `Previous Page Context: ${context.previousPageText.slice(0, 400)}...\n` : ''}
 Provide clear, helpful responses that align with the student's level and goals. When full page text is available, prioritize it over the general overview.`;
 
-    // Call OpenAI
-    const completion = await openai.chat.completions.create({
+    // 🔥 DAY 6: Stream chat responses using SSE
+    const stream = await openai.chat.completions.create({
       model: 'gpt-4-turbo-preview',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: message },
       ],
       temperature: 0.7,
-      max_tokens: 500,
+      max_tokens: 1000, // Increased from 500
+      stream: true, // Enable streaming!
     });
 
-    const response = completion.choices[0]?.message?.content || 'No response generated';
+    // Create SSE response stream
+    const encoder = new TextEncoder();
+    let firstTokenSent = false;
+    const startTime = Date.now();
 
-    return new Response(
-      JSON.stringify({ response }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content || '';
+            
+            if (content) {
+              // Track first token latency
+              if (!firstTokenSent) {
+                const firstTokenLatency = Date.now() - startTime;
+                console.log(`[Chat] First token in ${firstTokenLatency}ms`);
+                firstTokenSent = true;
+              }
+
+              // Send SSE formatted data
+              const data = JSON.stringify({ content });
+              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+            }
+          }
+
+          // Send completion marker
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        } catch (error) {
+          console.error('[Chat Stream] Error:', error);
+          const errorData = JSON.stringify({ error: 'Stream error' });
+          controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
   } catch (error) {
     console.error('[Chat API] Error:', error);
     return new Response(
