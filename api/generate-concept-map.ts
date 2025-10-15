@@ -82,7 +82,12 @@ Focus on the most important concepts and clear relationships.`
       temperature: 0.7,
     });
 
-    const result = JSON.parse(response.choices[0].message.content);
+    const content = response.choices[0].message.content;
+    if (!content) {
+      throw new Error('No content returned from OpenAI');
+    }
+    
+    const result = JSON.parse(content);
 
     // Save concept map
     const { data: saved, error: saveError } = await supabase
