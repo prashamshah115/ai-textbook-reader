@@ -1,6 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { RecallPanel } from './ai-panels/RecallPanel';
 import { ChatPanel } from './ai-panels/ChatPanel';
+import { FlashcardsPanel } from './ai-panels/FlashcardsPanel';
 
 export function MinimalAIPane() {
   return (
@@ -14,6 +15,12 @@ export function MinimalAIPane() {
             Practice
           </TabsTrigger>
           <TabsTrigger
+            value="flashcards"
+            className="flex-1 rounded-none border-r border-border data-[state=active]:bg-muted/50 data-[state=active]:shadow-none h-full text-xs font-medium"
+          >
+            🧠 Cards
+          </TabsTrigger>
+          <TabsTrigger
             value="chat"
             className="flex-1 rounded-none data-[state=active]:bg-muted/50 data-[state=active]:shadow-none h-full text-xs font-medium"
           >
@@ -23,6 +30,10 @@ export function MinimalAIPane() {
 
         <TabsContent value="recall" className="flex-1 overflow-auto py-3 mt-0">
           <RecallPanel />
+        </TabsContent>
+
+        <TabsContent value="flashcards" className="flex-1 overflow-hidden mt-0">
+          <FlashcardsPanel />
         </TabsContent>
 
         <TabsContent value="chat" className="flex-1 overflow-hidden mt-0">
