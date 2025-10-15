@@ -112,7 +112,12 @@ Create a mix of easy, medium, and hard questions.`;
       temperature: 0.8,
     });
 
-    const result = JSON.parse(response.choices[0].message.content);
+    const content = response.choices[0].message.content;
+    if (!content) {
+      throw new Error('No content returned from OpenAI');
+    }
+    
+    const result = JSON.parse(content);
     const questions = result.questions || [];
 
     console.log(`[Questions] Generated ${questions.length} questions`);
@@ -121,7 +126,7 @@ Create a mix of easy, medium, and hard questions.`;
     const flashcards = questions.map((q: any) => ({
       user_id: userId,
       textbook_id: textbookId,
-      page_number: q.page_number || pages?.[0]?.page_number,
+      page_number: q.page_number || pages?.[0]?.page_number || null,
       question: q.question,
       answer: q.answer,
       hint: q.hint,
