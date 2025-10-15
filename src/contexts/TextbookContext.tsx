@@ -580,7 +580,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       
       console.log(`[Upload] PDF uploaded in ${uploadDuration.toFixed(0)}ms`);
 
-      // 🔥 Step 3: Create textbook record with status='queued'
+      // 🔥 Step 3: Create textbook record with status='pending'
       onProgress?.(40, 'saving');
       toast.loading('Preparing textbook...', { id: 'upload' });
       
@@ -591,7 +591,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         title: metadata.title || quickMetadata.title || file.name.replace('.pdf', ''),
         pdf_url: pdfUrl,
         total_pages: quickMetadata.totalPages,
-        processing_status: 'queued',
+        processing_status: 'pending', // Fixed: was 'queued' but constraint only allows pending/processing/completed/failed
         processing_progress: 0,
         ai_processing_status: 'pending',
         ai_processing_progress: 0,
