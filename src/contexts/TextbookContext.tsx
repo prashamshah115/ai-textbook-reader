@@ -779,33 +779,28 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
   const extractPageOnDemand = async (textbookId: string, pdfUrl: string, pageNumber: number) => {
     try {
       console.log(`[LazyExtract] Extracting page ${pageNumber} on-demand...`);
-      toast.loading(`Extracting page ${pageNumber}...`, { id: 'page-extract' });
       
       const response = await fetch('/api/extract-single-page', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           textbookId,
-          pdfUrl,
           pageNumber,
         }),
       });
       
       if (response.ok) {
         const result = await response.json();
-        console.log(`[LazyExtract] Page ${pageNumber} extracted ✓`);
-        toast.success(`Page ${pageNumber} ready!`, { id: 'page-extract' });
+        console.log(`[LazyExtract] Page ${pageNumber} extracted ✓ (${result.duration}ms)`);
         
         // Reload page data to show extracted content
         await loadPageData();
       } else {
         const error = await response.json();
         console.error(`[LazyExtract] Failed to extract page ${pageNumber}:`, error);
-        toast.error(`Failed to extract page ${pageNumber}`, { id: 'page-extract' });
       }
     } catch (error) {
       console.error(`[LazyExtract] Exception extracting page ${pageNumber}:`, error);
-      toast.error(`Error extracting page ${pageNumber}`, { id: 'page-extract' });
     }
   };
 
