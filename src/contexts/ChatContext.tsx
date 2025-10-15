@@ -28,6 +28,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [currentContext, setCurrentContext] = useState<string | null>(null);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   // Load existing conversation
   const loadConversation = async (retryCount = 0) => {
@@ -90,9 +91,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   // Build rich context from multiple sources
   const buildRichContext = async () => {
+    // 🔥 FIX BUG #1: Use correct context keys that match API expectations
     const context: any = {
-      currentPage: currentPage,
-      currentPageText: currentPageData?.raw_text || '',
+      page: currentPage,  // ✅ Fixed: was 'currentPage'
+      pageText: currentPageData?.raw_text || '',  // ✅ Fixed: was 'currentPageText'
     };
 
     try {
@@ -186,7 +188,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   // Send message and get AI response
   const sendMessage = async (content: string) => {
-    if (!user || !currentTextbook || !conversationId) return;
+    if (!user || !currentTextbook || !conversationId) {
+      toast.error('Chat not initialized. Please refresh the page.');
+      return;
+    }
+
+    // 🔥 FIX BUG #5: Cancel any existing request
+    if (abortController) {
+      abortController.abort();
+    }
 
     const userMessage: ChatMessage = {
       role: 'user',
@@ -198,6 +208,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages((prev) => [...prev, userMessage]);
     setLoading(true);
 
+    // Create new abort controller for this request
+    const newAbortController = new AbortController();
+    setAbortController(newAbortController);
+
     try {
       // Build rich context from multiple sources
       const richContext = await buildRichContext();
@@ -205,7 +219,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       // Store context for viewer
       setCurrentContext(JSON.stringify(richContext, null, 2));
 
-      // 🔥 DAY 6: Stream chat responses using SSE
+      console.log('[Chat] Sending message with context:', {
+        page: richContext.page,
+        hasPageText: !!richContext.pageText,
+        hasOverview: !!richContext.textbookOverview,
+      });
+
+      // 🔥 FIX BUG #5: Stream with timeout and cancellation support
       const firstTokenTimer = performance.now();
       let fullResponse = '';
       let firstTokenReceived = false;
@@ -220,10 +240,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           context: richContext,
           conversationId,
         }),
+        signal: newAbortController.signal, // ✅ Added request cancellation
       });
 
       if (!response.ok) {
-        throw new Error('Failed to get response');
+        const errorText = await response.text().catch(() => 'Unknown error');
+        console.error('[Chat] API error:', response.status, errorText);
+        throw new Error(`API returned ${response.status}: ${errorText.slice(0, 100)}`);
       }
 
       // Read SSE stream
@@ -235,7 +258,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
 
       // Create placeholder AI message for streaming updates
-      const aiMessageIndex = messages.length + 1;
+      // 🔥 FIX BUG #4: Calculate correct index BEFORE adding message
+      // The message will be added at index messages.length, not messages.length + 1
+      const aiMessageIndex = messages.length;  // ✅ Fixed: was messages.length + 1
       const streamingMessage: ChatMessage = {
         role: 'assistant',
         content: '',
@@ -304,13 +329,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
 
       // Save final conversation to database
+      console.log('[Chat] Stream complete, saving conversation');
       const updatedMessages = [...messages, userMessage, {
         role: 'assistant' as const,
         content: fullResponse,
         timestamp: new Date().toISOString(),
       }];
 
-      await supabase
+      const { error: updateError } = await supabase
         .from('chat_conversations')
         .update({
           messages: updatedMessages,
@@ -318,19 +344,40 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           updated_at: new Date().toISOString(),
         })
         .eq('id', conversationId);
-    } catch (error) {
+
+      if (updateError) {
+        console.error('[Chat] Failed to save conversation:', updateError);
+        // Don't show error to user - conversation still worked
+      } else {
+        console.log('[Chat] Conversation saved successfully');
+      }
+    } catch (error: any) {
       console.error('[Chat] Failed to send message:', error);
-      toast.error('Failed to send message. Chat API not configured yet.');
       
-      // Add mock response for development
-      const mockResponse: ChatMessage = {
-        role: 'assistant',
-        content: 'I apologize, but the AI chat service is not yet configured. Please set up the OpenAI API endpoint to enable this feature.',
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, mockResponse]);
+      // 🔥 FIX BUG #5: Better error messages
+      if (error.name === 'AbortError') {
+        toast.error('Request cancelled');
+        // Remove the incomplete assistant message
+        setMessages((prev) => prev.slice(0, -1));
+      } else if (error.message?.includes('404')) {
+        toast.error('Conversation not found. Please refresh the page.');
+      } else if (error.message?.includes('fetch')) {
+        toast.error('Network error. Please check your connection.');
+      } else {
+        toast.error('Failed to send message. Please try again.');
+      }
+      
+      // Remove the incomplete assistant message if it exists
+      setMessages((prev) => {
+        const lastMessage = prev[prev.length - 1];
+        if (lastMessage?.role === 'assistant' && !lastMessage.content) {
+          return prev.slice(0, -1);
+        }
+        return prev;
+      });
     } finally {
       setLoading(false);
+      setAbortController(null);
     }
   };
 
