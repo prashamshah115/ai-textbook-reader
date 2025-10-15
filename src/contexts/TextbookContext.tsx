@@ -731,6 +731,68 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
             console.error('[Background] Web context failed:', err);
           }
         })();
+
+        // 🔥 PHASE 2: Priority Queue - Enqueue first 5 pages immediately
+        (async () => {
+          try {
+            const totalPages = quickMetadata.totalPages || 5;
+            console.log(`[PriorityQueue] Enqueuing first 5 pages (high priority)...`);
+            
+            // PRIORITY 1: First 5 pages (IMMEDIATE - for instant UX)
+            for (let page = 1; page <= Math.min(5, totalPages); page++) {
+              fetch('/api/enqueue-job', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  jobType: 'extract_and_ai',
+                  jobKey: `full:${textbookId}:${page}`,
+                  payload: { textbookId, pageNumber: page, pdfUrl },
+                  priority: 1, // HIGH
+                }),
+              }).catch(err => console.error(`[PriorityQueue] Failed to enqueue page ${page}:`, err));
+            }
+
+            // PRIORITY 2: Next 10 pages (5-15) - Background prefetch (delayed start)
+            setTimeout(async () => {
+              for (let page = 6; page <= Math.min(15, totalPages); page++) {
+                await fetch('/api/enqueue-job', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    jobType: 'extract_and_ai',
+                    jobKey: `full:${textbookId}:${page}`,
+                    payload: { textbookId, pageNumber: page, pdfUrl },
+                    priority: 2, // MEDIUM
+                  }),
+                }).catch(err => console.error(`[PriorityQueue] Failed to enqueue page ${page}:`, err));
+                
+                await new Promise(resolve => setTimeout(resolve, 500)); // Throttle
+              }
+            }, 10000); // Start after 10s
+
+            // PRIORITY 3: Rest of textbook (pages 16+) - Low priority background (delayed start)
+            setTimeout(async () => {
+              for (let page = 16; page <= totalPages; page++) {
+                await fetch('/api/enqueue-job', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    jobType: 'extract_and_ai',
+                    jobKey: `full:${textbookId}:${page}`,
+                    payload: { textbookId, pageNumber: page, pdfUrl },
+                    priority: 3, // LOW
+                  }),
+                }).catch(err => console.error(`[PriorityQueue] Failed to enqueue page ${page}:`, err));
+                
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Heavy throttle
+              }
+            }, 60000); // Start after 1 minute
+
+            console.log('[PriorityQueue] ✅ All jobs enqueued');
+          } catch (err) {
+            console.error('[PriorityQueue] Enqueue failed:', err);
+          }
+        })();
         
         // ⚠️ COMMENTED OUT - Text extraction moved to on-demand per-page
         // This was causing the app to freeze for 45-75 seconds

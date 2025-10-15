@@ -4,8 +4,9 @@
   "description": "Heavy PDF extraction service for AI Textbook Reader",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node queue-worker.js",
+    "start:old": "node server.js",
+    "dev": "nodemon queue-worker.js",
     "postinstall": "patch-package"
   },
   "dependencies": {
