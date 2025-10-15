@@ -334,15 +334,11 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
           }
         }
         
-        // If page doesn't exist yet, extract it NOW (lazy extraction)
+        // If page doesn't exist yet, let PDFReader extract it client-side
         if (pageError.code === 'PGRST116') {
-          console.log('[PageData] Page not extracted yet - extracting on-demand...');
+          console.log('[PageData] Page not extracted yet - will extract client-side when rendered');
           setCurrentPageData(null);
-          
-          // 🚀 LAZY EXTRACTION: Extract THIS page only
-          extractPageOnDemand(currentTextbook.id, currentTextbook.pdf_url, currentPage);
-          
-          return; // Don't throw, extraction will trigger reload
+          return; // PDFReader will extract on render
         }
         
         throw pageError;
