@@ -157,7 +157,6 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       useJitter: true,
     },
   });
-  }
 
   // Helper: Ensure we have a valid session before making queries
   const ensureValidSession = async (): Promise<boolean> => {
