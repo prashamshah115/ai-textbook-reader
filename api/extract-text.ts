@@ -71,34 +71,93 @@ export default async function handler(req: Request) {
       );
     }
 
-    console.log('[Extract Text] Enqueuing extraction job for:', textbookId);
+    console.log('[Extract Text] Starting extraction job for:', textbookId);
 
-    // 🔥 DAY 4: Generate idempotency key to prevent duplicate jobs
-    const idempotencyKey = `extract-${textbookId}`;
+    // Update textbook status to processing
+    await supabase
+      .from('textbooks')
+      .update({
+        processing_status: 'processing',
+        processing_progress: 0,
+      })
+      .eq('id', textbookId);
 
-    // 🔥 DAY 4: Try to enqueue job (backwards compatible)
-    let jobId = null;
+    // 🔥 CRITICAL: Trigger Railway worker IMMEDIATELY (don't depend on job queue)
+    const RAILWAY_EXTRACT_URL = process.env.RAILWAY_EXTRACT_URL;
+    const EXTRACTION_API_KEY = process.env.EXTRACTION_API_KEY;
+
+    if (!RAILWAY_EXTRACT_URL || !EXTRACTION_API_KEY) {
+      console.error('[Extract Text] Railway not configured!');
+      return new Response(
+        JSON.stringify({ 
+          error: 'Railway extraction service not configured',
+          details: 'RAILWAY_EXTRACT_URL or EXTRACTION_API_KEY missing'
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('[Extract Text] Triggering Railway:', RAILWAY_EXTRACT_URL);
+
+    // Call Railway with detailed error logging
+    let railwayResponse;
     try {
-      const { data: job, error: jobError } = await supabase.rpc('enqueue_job', {
+      railwayResponse = await fetch(`${RAILWAY_EXTRACT_URL}/extract`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': EXTRACTION_API_KEY,
+        },
+        body: JSON.stringify({ textbookId, pdfUrl }),
+      });
+
+      console.log('[Extract Text] Railway response status:', railwayResponse.status);
+
+      if (!railwayResponse.ok) {
+        const errorText = await railwayResponse.text();
+        console.error('[Extract Text] Railway error:', errorText);
+        throw new Error(`Railway returned ${railwayResponse.status}: ${errorText}`);
+      }
+
+      const result = await railwayResponse.json();
+      console.log('[Extract Text] Railway accepted job:', result);
+
+    } catch (railwayError) {
+      console.error('[Extract Text] Railway trigger failed:', railwayError);
+      
+      // Update textbook to failed status
+      await supabase
+        .from('textbooks')
+        .update({
+          processing_status: 'failed',
+          processing_error: railwayError instanceof Error ? railwayError.message : 'Railway service unavailable'
+        })
+        .eq('id', textbookId);
+
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to trigger extraction',
+          details: railwayError instanceof Error ? railwayError.message : 'Unknown error'
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Optional: Try to enqueue job (for future queue-based processing)
+    const idempotencyKey = `extract-${textbookId}`;
+    try {
+      await supabase.rpc('enqueue_job', {
         p_textbook_id: textbookId,
         p_type: 'extract_text',
-        p_payload: { 
-          pdf_url: pdfUrl,
-          total_pages: textbook.total_pages || 0
-        },
+        p_payload: { pdf_url: pdfUrl },
         p_idempotency_key: idempotencyKey,
         p_max_retries: 3
       });
-
-      if (!jobError) {
-        jobId = job;
-        console.log('[Extract Text] Job enqueued with ID:', jobId);
-      }
-    } catch (error) {
-      console.log('[Extract Text] Job queue not available yet, using direct trigger');
+    } catch {
+      // Job queue not available - that's OK, Railway is already triggered
     }
 
-    // Try to emit event (backwards compatible)
+    // Optional: Emit event
     try {
       await supabase.rpc('emit_event', {
         p_textbook_id: textbookId,
@@ -112,44 +171,8 @@ export default async function handler(req: Request) {
           timestamp: new Date().toISOString()
         }
       });
-    } catch (error) {
-      console.log('[Extract Text] Event emission not available yet');
-    }
-
-    // Update textbook status (use only columns that exist)
-    const updateData: any = {
-      processing_status: 'processing',
-    };
-    
-    try {
-      updateData.extraction_started_at = new Date().toISOString();
     } catch {
-      // Column doesn't exist yet
-    }
-
-    await supabase
-      .from('textbooks')
-      .update(updateData)
-      .eq('id', textbookId);
-
-    // 🔥 DAY 4: Trigger Railway worker (fire HTTP request to wake it up)
-    // Worker will pull jobs from queue and process them
-    const RAILWAY_EXTRACT_URL = process.env.RAILWAY_EXTRACT_URL;
-    const EXTRACTION_API_KEY = process.env.EXTRACTION_API_KEY;
-
-    if (RAILWAY_EXTRACT_URL && EXTRACTION_API_KEY) {
-      fetch(`${RAILWAY_EXTRACT_URL}/extract`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': EXTRACTION_API_KEY,
-        },
-        body: JSON.stringify({ textbookId, pdfUrl }),
-      }).catch(err => {
-        console.error('[Extract Text] Railway trigger failed (non-critical):', err.message);
-      });
-    } else {
-      console.warn('[Extract Text] Railway not configured, job queued but worker may not process');
+      // Event system not available - that's OK
     }
 
     return new Response(

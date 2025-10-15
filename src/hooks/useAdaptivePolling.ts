@@ -162,11 +162,33 @@ export function useAdaptivePolling<T>({
       return;
     }
 
+    // 🔥 FIX: Pause polling when tab is hidden (prevents freezing)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('[Adaptive Poll] Tab hidden, pausing polling');
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+      } else {
+        console.log('[Adaptive Poll] Tab visible, resuming polling');
+        if (!timeoutRef.current && enabled && !realtimeConnected) {
+          scheduleNextPoll();
+        }
+      }
+    };
+
     // Schedule next poll
     const scheduleNextPoll = () => {
+      // Don't schedule if tab is hidden
+      if (document.hidden) {
+        console.log('[Adaptive Poll] Skipping schedule - tab hidden');
+        return;
+      }
+      
       timeoutRef.current = setTimeout(() => {
         poll().then(() => {
-          if (enabled && !realtimeConnected) {
+          if (enabled && !realtimeConnected && !document.hidden) {
             scheduleNextPoll();
           }
         });
@@ -175,12 +197,15 @@ export function useAdaptivePolling<T>({
 
     // Start polling
     poll().then(() => {
-      if (enabled && !realtimeConnected) {
+      if (enabled && !realtimeConnected && !document.hidden) {
         scheduleNextPoll();
       }
     });
 
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;

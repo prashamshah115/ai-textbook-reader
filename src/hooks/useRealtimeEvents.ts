@@ -89,8 +89,26 @@ export function useRealtimeEvents(options: UseRealtimeEventsOptions) {
         }
       });
 
+    // 🔥 FIX: Reconnect when tab becomes visible again (fixes freezing)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[Realtime] Tab visible, checking connection...');
+        
+        // Resubscribe if disconnected
+        if (!isConnected) {
+          console.log('[Realtime] Reconnecting...');
+          supabase.removeChannel(channel);
+          // Trigger re-render by changing enabled state briefly
+          setIsConnected(false);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       console.log('[Realtime] Unsubscribing from:', channelName);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       supabase.removeChannel(channel);
       setIsConnected(false);
     };

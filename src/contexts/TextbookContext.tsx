@@ -701,7 +701,8 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       console.log('[Background] Web context failed (non-critical):', err.message);
     });
     
-    // Job 2: Text extraction
+    // Job 2: Text extraction (with detailed logging)
+    console.log('[Background] Triggering text extraction for:', textbookId);
     fetch('/api/extract-text', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -709,10 +710,22 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         textbookId,
         pdfUrl,
       }),
-    }).catch(err => {
-      console.log('[Background] Text extraction failed:', err.message);
-      toast.warning('Text extraction will continue in background');
-    });
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('[Background] Text extraction API error:', errorData);
+          toast.error(`Extraction failed: ${errorData.error || 'Unknown error'}`);
+        } else {
+          const result = await response.json();
+          console.log('[Background] Text extraction started:', result);
+          toast.success('Background extraction started!', { duration: 3000 });
+        }
+      })
+      .catch(err => {
+        console.error('[Background] Text extraction request failed:', err);
+        toast.error('Failed to start extraction. Check if Railway is running.');
+      });
     
     // 🔥 DAY 7: Job 3 - Process first 10 pages immediately (parallel)
     const totalPages = quickMetadata.totalPages || 0;
