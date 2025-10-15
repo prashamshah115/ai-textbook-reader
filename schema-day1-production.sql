@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS metrics (
   value NUMERIC NOT NULL,
   unit TEXT NOT NULL, -- 'ms', 's', 'count'
   textbook_id UUID REFERENCES textbooks(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid(), -- Auto-populate from auth context
   metadata JSONB DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );

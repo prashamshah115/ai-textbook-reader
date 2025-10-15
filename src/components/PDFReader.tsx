@@ -65,18 +65,24 @@ export function PDFReader({ onTextSelect }: PDFReaderProps) {
     setActualPageCount(numPages);
     console.log('[PDFReader] PDF loaded successfully, pages:', numPages);
     
-    // Record TTFP (Time to First Page) metric (if table exists)
+    // Record TTFP (Time to First Page) metric
     if (currentTextbook && pageTimerRef.current) {
       const duration = pageTimerRef.current.getDuration();
+      
+      // Use proper Supabase error handling pattern
       supabase.from('metrics').insert({
         metric_name: 'ttfp',
         value: duration,
         unit: 'ms',
         textbook_id: currentTextbook.id,
         metadata: { total_pages: numPages }
-      }).catch(() => {
-        console.log('[PDFReader] Metrics table not available yet');
+        // user_id auto-populated by DEFAULT in schema
+      }).then(({ error }) => {
+        if (error) {
+          console.log('[PDFReader] Metrics insert failed (non-critical):', error.message);
+        }
       });
+      
       console.log(`[PDFReader] TTFP: ${duration.toFixed(0)}ms`);
     }
   };

@@ -274,14 +274,30 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         .single();
 
       if (pageError) {
-        // FIX #2: Retry logic for 406 errors (session timeout)
-        if (retryCount === 0 && (pageError.code === '406' || pageError.message?.includes('JWT'))) {
-          console.log('[PageData] Auth error detected, refreshing session and retrying...');
+        // FIX: Retry logic for 406 errors (session timeout) 
+        // 406 = JWT expired, PGRST301 = JWT invalid
+        const isAuthError = pageError.code === '406' || 
+                           pageError.code === 'PGRST301' || 
+                           pageError.message?.includes('JWT') ||
+                           pageError.message?.includes('session');
+        
+        if (retryCount === 0 && isAuthError) {
+          console.log('[PageData] Session expired (406), refreshing and retrying...');
           const { error: refreshError } = await supabase.auth.refreshSession();
           if (!refreshError) {
+            // Wait a bit for session to propagate
+            await new Promise(resolve => setTimeout(resolve, 500));
             return loadPageData(1); // Retry once with fresh token
           }
         }
+        
+        // If page doesn't exist yet, that's OK (background extraction in progress)
+        if (pageError.code === 'PGRST116') {
+          console.log('[PageData] Page not extracted yet, will show when ready');
+          setCurrentPageData(null);
+          return; // Don't throw, just show empty state
+        }
+        
         throw pageError;
       }
       
@@ -635,20 +651,20 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         duration: 3000 
       });
       
-      // Record upload performance metric (if metrics table exists)
-      try {
-        await supabase.from('metrics').insert({
-          metric_name: 'upload_duration',
-          value: totalDuration,
-          unit: 'ms',
-          textbook_id: textbookId,
-          metadata: {
-            file_size: file.size,
-            total_pages: quickMetadata.totalPages
-          }
-        });
-      } catch (error) {
-        console.log('[Upload] Metrics table not available yet');
+      // Record upload performance metric (user_id auto-populated by DEFAULT)
+      const { error: metricsError } = await supabase.from('metrics').insert({
+        metric_name: 'upload_duration',
+        value: totalDuration,
+        unit: 'ms',
+        textbook_id: textbookId,
+        metadata: {
+          file_size: file.size,
+          total_pages: quickMetadata.totalPages
+        }
+      });
+      
+      if (metricsError) {
+        console.log('[Upload] Metrics insert failed (non-critical):', metricsError.message);
       }
       
       // 🔥 Step 5: Trigger background jobs (fire-and-forget)

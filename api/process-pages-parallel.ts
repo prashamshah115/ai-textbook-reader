@@ -231,18 +231,9 @@ async function generateAIContentForPage(textbookId: string, pageNumber: number) 
     const duration = Date.now() - startTime;
     console.log(`[AI Gen] Page ${pageNumber} complete in ${duration}ms`);
 
-    // Record metric (if table exists)
-    try {
-      await supabase.from('metrics').insert({
-        metric_name: 'ai_generation_duration',
-        value: duration,
-        unit: 'ms',
-        textbook_id: textbookId,
-        metadata: { page_number: pageNumber, text_length: pageText.length },
-      });
-    } catch (error) {
-      console.log('[AI Gen] Metrics table not available yet');
-    }
+    // Record metric (note: user_id will be NULL in service_role context, need to add explicitly)
+    // Skip metrics from service_role context - only record from client
+    // Metrics table expects user_id which we don't have in service_role API calls
 
     return { pageNumber, duration, success: true };
   } catch (error) {

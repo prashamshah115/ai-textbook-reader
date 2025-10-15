@@ -30,7 +30,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [currentContext, setCurrentContext] = useState<string | null>(null);
 
   // Load existing conversation
-  const loadConversation = async () => {
+  const loadConversation = async (retryCount = 0) => {
     if (!user || !currentTextbook) return;
 
     try {
@@ -44,6 +44,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .single();
 
       if (error && error.code !== 'PGRST116') {
+        // Handle 406 session errors
+        const isAuthError = error.code === '406' || 
+                           error.code === 'PGRST301' ||
+                           error.message?.includes('JWT') ||
+                           error.message?.includes('session');
+        
+        if (retryCount === 0 && isAuthError) {
+          console.log('[Chat] Session expired (406), refreshing...');
+          const { error: refreshError } = await supabase.auth.refreshSession();
+          if (!refreshError) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return loadConversation(1); // Retry once
+          }
+        }
+        
         throw error;
       }
 
@@ -244,14 +259,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                   const latency = performance.now() - firstTokenTimer;
                   console.log(`[Chat] First token in ${latency.toFixed(0)}ms`);
                   
-                  // Record metric (if table exists)
+                  // Record metric (user_id auto-populated by DEFAULT)
                   supabase.from('metrics').insert({
                     metric_name: 'chat_first_token',
                     value: latency,
                     unit: 'ms',
                     textbook_id: currentTextbook?.id,
-                  }).catch(() => {
-                    console.log('[Chat] Metrics table not available yet');
+                  }).then(({ error }) => {
+                    if (error) {
+                      console.log('[Chat] Metrics insert failed (non-critical):', error.message);
+                    }
                   });
                   
                   firstTokenReceived = true;
