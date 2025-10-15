@@ -15,12 +15,13 @@ import {
 
 export function FlashcardsPanel() {
   const { user } = useAuth();
-  const { currentTextbook } = useTextbook();
+  const { currentTextbook, currentPage } = useTextbook();
   const [dueCards, setDueCards] = useState<FlashCard[]>([]);
   const [currentCard, setCurrentCard] = useState<FlashCard | null>(null);
   const [showAnswer, setShowAnswer] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reviewing, setReviewing] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [stats, setStats] = useState({
     due: 0,
     reviewed: 0,
@@ -103,6 +104,41 @@ export function FlashcardsPanel() {
       });
     } catch (error) {
       console.error('[Flashcards] Failed to load stats:', error);
+    }
+  };
+
+  const generateAIQuestions = async () => {
+    if (!user || !currentTextbook) return;
+
+    setGenerating(true);
+    toast.loading('🤖 Generating practice questions...', { id: 'generate' });
+
+    try {
+      const response = await fetch('/api/generate-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          textbookId: currentTextbook.id,
+          userId: user.id,
+          count: 5,
+          pageNumbers: [currentPage], // Generate from current page
+        }),
+      });
+
+      if (!response.ok) throw new Error('Generation failed');
+
+      const data = await response.json();
+      
+      toast.success(`Generated ${data.saved} questions!`, { id: 'generate' });
+      
+      // Reload cards and stats
+      await loadDueCards();
+      await loadStats();
+    } catch (error) {
+      console.error('[Flashcards] Generate error:', error);
+      toast.error('Failed to generate questions', { id: 'generate' });
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -210,10 +246,25 @@ export function FlashcardsPanel() {
             <p className="text-sm text-muted-foreground mb-4 max-w-sm">
               Create flashcards to start learning with spaced repetition. The app will optimize your review schedule.
             </p>
-            <Button size="sm">
-              <Plus className="w-4 h-4 mr-2" />
-              Create First Card
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={generateAIQuestions} disabled={generating}>
+                {generating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Brain className="w-4 h-4 mr-2" />
+                    AI Generate (5 Cards)
+                  </>
+                )}
+              </Button>
+              <Button size="sm" variant="outline">
+                <Plus className="w-4 h-4 mr-2" />
+                Create Manually
+              </Button>
+            </div>
           </div>
         ) : currentCard ? (
           // Review Mode
@@ -312,9 +363,18 @@ export function FlashcardsPanel() {
                 <Zap className="w-4 h-4 mr-2" />
                 Refresh
               </Button>
-              <Button size="sm">
-                <Plus className="w-4 h-4 mr-2" />
-                Add More Cards
+              <Button size="sm" onClick={generateAIQuestions} disabled={generating}>
+                {generating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Brain className="w-4 h-4 mr-2" />
+                    AI Generate
+                  </>
+                )}
               </Button>
             </div>
           </div>
