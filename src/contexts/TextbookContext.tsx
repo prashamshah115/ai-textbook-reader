@@ -67,11 +67,14 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 🔥 DAY 2: Realtime events for current textbook
-  const { isConnected: realtimeConnected, latestEvent } = useRealtimeEvents({
-    textbookId: currentTextbook?.id || '',
-    enabled: !!currentTextbook,
-    onEvent: (event) => {
+  // ⚠️ DISABLED: Realtime events for old bulk extraction (not needed with lazy extraction)
+  // const { isConnected: realtimeConnected, latestEvent } = useRealtimeEvents({
+  //   textbookId: currentTextbook?.id || '',
+  //   enabled: !!currentTextbook,
+  //   onEvent: (event) => {
+  const realtimeConnected = false;
+  const latestEvent = null;
+  if (false) {
       console.log('[Realtime] Event received:', event.type);
       
       // Handle extraction progress
@@ -104,11 +107,13 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
           toast.error(`Job failed: ${event.error}`);
         }
       }
-    },
-  });
+    }
+  }
 
-  // 🔥 DAY 2: Adaptive polling fallback (only when Realtime disconnected)
-  useAdaptivePolling({
+  // ⚠️ DISABLED: Adaptive polling for old bulk extraction (not needed with lazy extraction)
+  // useAdaptivePolling({
+  if (false) {
+    useAdaptivePolling({
     fetchFn: async () => {
       if (!currentTextbook) return null;
       
@@ -152,6 +157,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       useJitter: true,
     },
   });
+  }
 
   // Helper: Ensure we have a valid session before making queries
   const ensureValidSession = async (): Promise<boolean> => {
