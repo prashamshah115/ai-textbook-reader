@@ -1,7 +1,8 @@
-import { X, FileText, Loader2, Sparkles } from 'lucide-react';
+import { X, FileText, Loader2, Sparkles, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { useTextbook } from '../contexts/TextbookContext';
 
 interface ExplainTooltipProps {
   text: string;
@@ -11,9 +12,12 @@ interface ExplainTooltipProps {
 }
 
 export function ExplainTooltip({ text, position, onClose, onAddToNotes }: ExplainTooltipProps) {
+  const { currentTextbook, currentPage } = useTextbook();
   const [explanation, setExplanation] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [cached, setCached] = useState(false);
+  const [duration, setDuration] = useState<number>(0);
 
   useEffect(() => {
     const fetchExplanation = async () => {
@@ -21,10 +25,18 @@ export function ExplainTooltip({ text, position, onClose, onAddToNotes }: Explai
         setLoading(true);
         setError(false);
 
-        const response = await fetch('/api/explain-text', {
+        // 🔥 PHASE 3: Use new explain-highlight API with Groq
+        const response = await fetch('/api/explain-highlight', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({
+            text,
+            context: {
+              docId: currentTextbook?.id,
+              pageNum: currentPage,
+              fileName: currentTextbook?.title,
+            },
+          }),
         });
 
         if (!response.ok) {
@@ -33,6 +45,10 @@ export function ExplainTooltip({ text, position, onClose, onAddToNotes }: Explai
 
         const data = await response.json();
         setExplanation(data.explanation);
+        setCached(data.cached || false);
+        setDuration(data.duration || 0);
+        
+        console.log(`[ExplainTooltip] Explained in ${data.duration}ms ${data.cached ? '(cached)' : ''}`);
       } catch (err) {
         console.error('[ExplainTooltip] Error:', err);
         setError(true);
@@ -43,7 +59,7 @@ export function ExplainTooltip({ text, position, onClose, onAddToNotes }: Explai
     };
 
     fetchExplanation();
-  }, [text]);
+  }, [text, currentTextbook, currentPage]);
 
   return (
     <AnimatePresence>
@@ -74,9 +90,12 @@ export function ExplainTooltip({ text, position, onClose, onAddToNotes }: Explai
           </div>
           
           <div className="pt-2 border-t border-border">
-            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" />
-              AI Explanation
+            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1 justify-between">
+              <div className="flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                AI Explanation
+              </div>
+              {cached && <Zap className="w-3 h-3 text-amber-500" title="Instant (cached)" />}
             </div>
             {loading ? (
               <div className="flex items-center gap-2 py-2">
@@ -86,7 +105,14 @@ export function ExplainTooltip({ text, position, onClose, onAddToNotes }: Explai
             ) : error ? (
               <p className="text-xs text-red-500">Failed to generate explanation. Try again.</p>
             ) : (
-              <p className="text-xs leading-relaxed">{explanation}</p>
+              <>
+                <p className="text-xs leading-relaxed">{explanation}</p>
+                {duration > 0 && (
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {cached ? '⚡ Instant' : `Generated in ${duration}ms`} • Powered by Groq
+                  </p>
+                )}
+              </>
             )}
           </div>
 
