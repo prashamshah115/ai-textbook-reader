@@ -89,67 +89,101 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Build rich context from multiple sources
+  // 🔥 PHASE 1: Tiered context system (0-3) for instant chat
   const buildRichContext = async () => {
-    // 🔥 FIX BUG #1: Use correct context keys that match API expectations
     const context: any = {
-      page: currentPage,  // ✅ Fixed: was 'currentPage'
-      pageText: currentPageData?.raw_text || '',  // ✅ Fixed: was 'currentPageText'
+      page: currentPage,
+      tier: 0, // Track which tier we're using (0=web-only, 1=metadata, 2=extracted-text, 3=full-ai)
     };
 
     try {
-      // 🔥 LAZY EXTRACTION MODE: Fetch web context FIRST (instant, works before page extraction)
+      // ⚡ TIER 0: Web Context (1s) - ALWAYS AVAILABLE
       const { data: webContext } = await supabase
         .from('textbook_web_context')
         .select('*')
         .eq('textbook_id', currentTextbook!.id)
         .maybeSingle() as any;
 
-      if (webContext && webContext.web_summary) {
+      if (webContext?.web_summary) {
+        context.tier = 0;
         context.textbookOverview = webContext.web_summary;
         context.keyTopics = webContext.key_topics || [];
-        context.textbookAuthor = webContext.author;
         context.textbookTitle = webContext.title;
-      }
-      
-      // Add textbook metadata (always available)
-      context.textbookMetadata = {
-        title: currentTextbook!.title,
-        totalPages: currentTextbook!.total_pages,
-        subject: (currentTextbook as any).metadata?.subject,
-        learningGoal: (currentTextbook as any).metadata?.learning_goal,
-      };
-      
-      // If no page text yet, add helpful note
-      if (!currentPageData?.raw_text) {
-        context.note = 'Page text extraction happens on-demand as you read. I can answer general questions about the textbook using web context.';
+        context.textbookAuthor = webContext.author;
       }
 
-      // Get neighboring pages for broader context
-      const [prevPageResult, nextPageResult] = await Promise.all([
-        supabase
-          .from('pages')
-          .select('raw_text')
-          .eq('textbook_id', currentTextbook!.id)
-          .eq('page_number', currentPage - 1)
-          .maybeSingle() as any,
-        supabase
-          .from('pages')
-          .select('raw_text')
-          .eq('textbook_id', currentTextbook!.id)
-          .eq('page_number', currentPage + 1)
-          .maybeSingle() as any,
-      ]);
-
-      if (prevPageResult.data) {
-        context.previousPageText = prevPageResult.data.raw_text?.substring(0, 500);
-      }
-      if (nextPageResult.data) {
-        context.nextPageText = nextPageResult.data.raw_text?.substring(0, 500);
+      // ⚡ TIER 1: Chapter Metadata (immediate) - FROM METADATA
+      const metadata = (currentTextbook as any).metadata;
+      if (metadata) {
+        context.tier = Math.max(context.tier, 1);
+        context.subject = metadata.subject;
+        context.learningGoal = metadata.learning_goal;
+        context.prerequisites = metadata.prerequisites;
+        context.textbookMetadata = {
+          title: currentTextbook!.title,
+          totalPages: currentTextbook!.total_pages,
+          subject: metadata.subject,
+          learningGoal: metadata.learning_goal,
+        };
       }
 
-      // Get chapter summary
+      // Check if we have chapter info
       const { data: chapter } = await supabase
+        .from('chapters')
+        .select('title, chapter_number')
+        .eq('textbook_id', currentTextbook!.id)
+        .lte('page_start', currentPage)
+        .gte('page_end', currentPage)
+        .maybeSingle();
+
+      if (chapter) {
+        context.tier = Math.max(context.tier, 1);
+        context.currentChapter = chapter.title;
+        context.chapterNumber = chapter.chapter_number;
+      }
+
+      // ⚡ TIER 2: Extracted Page Text (2-6s) - IF AVAILABLE
+      if (currentPageData?.raw_text) {
+        context.tier = Math.max(context.tier, 2);
+        context.pageText = currentPageData.raw_text;
+
+        // Get neighboring pages if available
+        const [prevPage, nextPage] = await Promise.all([
+          supabase.from('pages')
+            .select('raw_text')
+            .eq('textbook_id', currentTextbook!.id)
+            .eq('page_number', currentPage - 1)
+            .maybeSingle(),
+          supabase.from('pages')
+            .select('raw_text')
+            .eq('textbook_id', currentTextbook!.id)
+            .eq('page_number', currentPage + 1)
+            .maybeSingle(),
+        ]);
+
+        if (prevPage.data?.raw_text) {
+          context.previousPageText = prevPage.data.raw_text.substring(0, 500);
+        }
+        if (nextPage.data?.raw_text) {
+          context.nextPageText = nextPage.data.raw_text.substring(0, 500);
+        }
+      } else {
+        // No page text yet
+        context.note = 'Page text is being extracted on-demand. I can answer general questions using web context and metadata.';
+      }
+
+      // ⚡ TIER 3: AI-Generated Content (if available)
+      if (currentAIContent) {
+        context.tier = Math.max(context.tier, 3);
+        context.aiInsights = {
+          summary: currentAIContent.summary,
+          keyConcepts: currentAIContent.key_concepts,
+          applications: currentAIContent.applications,
+        };
+      }
+
+      // Get chapter summary if available
+      const { data: chapterData } = await supabase
         .from('chapters')
         .select('chapter_summaries(*)')
         .eq('textbook_id', currentTextbook!.id)
@@ -157,8 +191,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .gte('page_end', currentPage)
         .maybeSingle() as any;
       
-      if (chapter?.chapter_summaries?.[0]) {
-        context.chapterSummary = chapter.chapter_summaries[0].summary_text;
+      if (chapterData?.chapter_summaries?.[0]) {
+        context.chapterSummary = chapterData.chapter_summaries[0].summary_text;
       }
 
       // Get user notes for this page
@@ -172,17 +206,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         context.userNotes = notes.map((n: any) => n.content).join('\n\n');
       }
 
-      // Get AI-generated content if available
-      if (currentAIContent) {
-        context.aiInsights = {
-          applications: currentAIContent.applications,
-          keyConcepts: currentAIContent.key_concepts,
-        };
-      }
+      // Add context quality indicator
+      const tierLabels = ['web-only', 'metadata', 'extracted-text', 'full-ai'];
+      context.contextQuality = tierLabels[context.tier];
+
+      console.log(`[Chat] Context built - Tier ${context.tier} (${context.contextQuality})`);
+
     } catch (error) {
       console.error('[Chat] Error building context:', error);
+      // Even on error, return basic context
+      context.tier = 0;
+      context.textbookTitle = currentTextbook!.title;
+      context.contextQuality = 'minimal';
     }
 
+    setCurrentContext(JSON.stringify(context, null, 2));
     return context;
   };
 

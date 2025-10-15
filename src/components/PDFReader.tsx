@@ -37,23 +37,44 @@ export function PDFReader({ onTextSelect }: PDFReaderProps) {
     }
   }, [currentPage, currentTextbook]);
 
-  // 🔥 DAY 5: Prefetch neighboring pages on page change
+  // 🔥 PHASE 1: Enhanced PDF prefetching for instant page turns
   useEffect(() => {
     if (!currentTextbook || !numPages) return;
 
-    const pagesToPrefetch = [
-      currentPage - 2,
-      currentPage - 1,
-      currentPage + 1,
-      currentPage + 2,
-    ].filter((p) => p >= 1 && p <= numPages && p !== currentPage);
+    // Prefetch first 5 pages aggressively on load
+    const isInitialLoad = currentPage === 1;
+    const pagesToPrefetch = isInitialLoad
+      ? Array.from({ length: Math.min(5, numPages) }, (_, i) => i + 1)
+      : [
+          currentPage - 2,
+          currentPage - 1,
+          currentPage + 1,
+          currentPage + 2,
+        ].filter((p) => p >= 1 && p <= numPages && p !== currentPage);
 
-    // Trigger prefetch in background (react-pdf handles this internally via Document)
-    // We'll use their built-in cache
-    console.log('[PDFReader] Would prefetch pages:', pagesToPrefetch);
-    
-    // Note: react-pdf already caches rendered pages in memory
-    // For better control, we'd need to switch to direct pdfjs-dist
+    console.log('[PDFReader] Prefetching pages:', pagesToPrefetch);
+
+    // Use pdfjs-dist to preload pages into cache
+    if (currentTextbook.pdf_url) {
+      pagesToPrefetch.forEach((pageNum) => {
+        pdfjs.getDocument(currentTextbook.pdf_url!).promise
+          .then((pdf) => pdf.getPage(pageNum))
+          .then((page) => {
+            // Create offscreen canvas to cache the page rendering
+            const viewport = page.getViewport({ scale: 1.0 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            const context = canvas.getContext('2d');
+            if (context) {
+              page.render({ canvasContext: context, viewport }).promise
+                .then(() => console.log(`[PDFReader] ✓ Cached page ${pageNum}`))
+                .catch(() => {}); // Silently fail prefetch
+            }
+          })
+          .catch(() => {}); // Silently fail prefetch
+      });
+    }
   }, [currentPage, currentTextbook, numPages]);
 
   const handleUpload = async (file: File, metadata: UploadMetadata) => {
