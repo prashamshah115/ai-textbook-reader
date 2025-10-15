@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import { useTextbook } from './TextbookContext';
 import { toast } from 'sonner';
-import { fetchWithRetry } from '../lib/fetchWithRetry';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -43,7 +42,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .eq('textbook_id', currentTextbook.id)
         .order('updated_at', { ascending: false })
         .limit(1)
-        .single();
+        .single() as any;
 
       if (error && error.code !== 'PGRST116') {
         // Handle 406 session errors
@@ -76,7 +75,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             textbook_id: currentTextbook.id,
             context_pages: [currentPage],
             messages: [],
-          })
+          } as any)
           .select()
           .single();
 
@@ -104,7 +103,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .from('textbook_web_context')
         .select('*')
         .eq('textbook_id', currentTextbook!.id)
-        .maybeSingle();
+        .maybeSingle() as any;
 
       if (webContext && webContext.web_summary) {
         context.textbookOverview = webContext.web_summary;
@@ -133,13 +132,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           .select('raw_text')
           .eq('textbook_id', currentTextbook!.id)
           .eq('page_number', currentPage - 1)
-          .maybeSingle(),
+          .maybeSingle() as any,
         supabase
           .from('pages')
           .select('raw_text')
           .eq('textbook_id', currentTextbook!.id)
           .eq('page_number', currentPage + 1)
-          .maybeSingle(),
+          .maybeSingle() as any,
       ]);
 
       if (prevPageResult.data) {
@@ -156,7 +155,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .eq('textbook_id', currentTextbook!.id)
         .lte('page_start', currentPage)
         .gte('page_end', currentPage)
-        .maybeSingle();
+        .maybeSingle() as any;
       
       if (chapter?.chapter_summaries?.[0]) {
         context.chapterSummary = chapter.chapter_summaries[0].summary_text;
@@ -167,7 +166,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .from('user_notes')
         .select('content')
         .eq('textbook_id', currentTextbook!.id)
-        .eq('page_number', currentPage);
+        .eq('page_number', currentPage) as any;
 
       if (notes && notes.length > 0) {
         context.userNotes = notes.map(n => n.content).join('\n\n');
@@ -311,7 +310,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                     value: latency,
                     unit: 'ms',
                     textbook_id: currentTextbook?.id,
-                  }).then(({ error }) => {
+                  } as any).then(({ error }) => {
                     if (error) {
                       console.log('[Chat] Metrics insert failed (non-critical):', error.message);
                     }
@@ -350,7 +349,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           messages: updatedMessages,
           context_pages: [currentPage],
           updated_at: new Date().toISOString(),
-        })
+        } as any)
         .eq('id', conversationId);
 
       if (updateError) {
@@ -399,7 +398,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .update({
           messages: [],
           updated_at: new Date().toISOString(),
-        })
+        } as any)
         .eq('id', conversationId);
 
       setMessages([]);
