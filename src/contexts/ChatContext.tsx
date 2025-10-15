@@ -96,7 +96,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
 
     try {
-      // 🔥 NEW: Fetch web context FIRST (cached, instant)
+      // 🔥 LAZY EXTRACTION MODE: Fetch web context FIRST (instant, works before page extraction)
       const { data: webContext } = await supabase
         .from('textbook_web_context')
         .select('*')
@@ -108,6 +108,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         context.keyTopics = webContext.key_topics || [];
         context.textbookAuthor = webContext.author;
         context.textbookTitle = webContext.title;
+      }
+      
+      // Add textbook metadata (always available)
+      context.textbookMetadata = {
+        title: currentTextbook!.title,
+        totalPages: currentTextbook!.total_pages,
+        subject: currentTextbook!.metadata?.subject,
+        learningGoal: currentTextbook!.metadata?.learning_goal,
+      };
+      
+      // If no page text yet, add helpful note
+      if (!currentPageData?.raw_text) {
+        context.note = 'Page text extraction happens on-demand as you read. I can answer general questions about the textbook using web context.';
       }
 
       // Get neighboring pages for broader context

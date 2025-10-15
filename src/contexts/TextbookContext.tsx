@@ -329,11 +329,15 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
           }
         }
         
-        // If page doesn't exist yet, that's OK (background extraction in progress)
+        // If page doesn't exist yet, extract it NOW (lazy extraction)
         if (pageError.code === 'PGRST116') {
-          console.log('[PageData] Page not extracted yet, will show when ready');
+          console.log('[PageData] Page not extracted yet - extracting on-demand...');
           setCurrentPageData(null);
-          return; // Don't throw, just show empty state
+          
+          // 🚀 LAZY EXTRACTION: Extract THIS page only
+          extractPageOnDemand(currentTextbook.id, currentTextbook.pdf_url, currentPage);
+          
+          return; // Don't throw, extraction will trigger reload
         }
         
         throw pageError;
@@ -669,17 +673,18 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       
     } finally {
       // ============================================================
-      // BACKGROUND PATH - Extract metadata and trigger processing
+      // BACKGROUND PATH - Metadata + Web Context ONLY
+      // Text extraction happens on-demand when user views pages
       // ============================================================
-      console.log('[Upload] ===== BACKGROUND PROCESSING START =====');
+      console.log('[Upload] ===== BACKGROUND: METADATA + WEB CONTEXT =====');
       
       if (textbookId && pdfUrl) {
-        // Background 1: Extract full metadata from PDF
+        // Background 1: Extract full metadata (NEEDED FOR CHAT)
         (async () => {
           try {
-            console.log('[Background] Extracting PDF metadata...');
+            console.log('[Background] Extracting PDF metadata for chat...');
             const fullMetadata = await extractMetadataOnly(file);
-            console.log('[Background] Metadata extracted:', fullMetadata);
+            console.log('[Background] Metadata:', fullMetadata);
             
             // Update textbook record with real page count
             await supabase
@@ -690,23 +695,63 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
                   ...metadata,
                   author: fullMetadata.author,
                   pdf_subject: fullMetadata.subject,
-                }
+                },
+                processing_status: 'completed' // Mark as ready (no bulk extraction needed)
               })
               .eq('id', textbookId);
             
-            console.log('[Background] Metadata updated in DB ✓');
-            quickMetadata = fullMetadata;
-            
-            // Now trigger all background jobs
-            triggerBackgroundProcessing(textbookId, pdfUrl, metadata, fullMetadata);
+            console.log('[Background] ✅ Metadata updated - chat ready!');
           } catch (err) {
             console.error('[Background] Metadata extraction failed:', err);
-            // Still trigger background jobs with basic metadata
-            triggerBackgroundProcessing(textbookId, pdfUrl, metadata, quickMetadata);
           }
         })();
         
-        // Background 2: Record metrics (fire and forget)
+        // Background 2: Fetch web context (NEEDED FOR CHAT)
+        (async () => {
+          try {
+            console.log('[Background] Fetching web context for instant chat...');
+            const response = await fetch('/api/fetch-textbook-context', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                textbookId,
+                title: metadata.title || file.name.replace('.pdf', ''),
+                author: metadata.author,
+                subject: metadata.subject,
+              }),
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              console.log('[Background] ✅ Web context ready - chat enhanced!');
+              toast.success('💬 Chat is ready! Ask me anything.', { duration: 4000 });
+            }
+          } catch (err) {
+            console.error('[Background] Web context failed:', err);
+          }
+        })();
+        
+        // ⚠️ COMMENTED OUT - Text extraction moved to on-demand per-page
+        // This was causing the app to freeze for 45-75 seconds
+        /*
+        (async () => {
+          try {
+            console.log('[Background] Starting text extraction...');
+            const response = await fetch('/api/extract-text', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ textbookId, pdfUrl }),
+            });
+            if (response.ok) {
+              toast.success('Text extraction started!');
+            }
+          } catch (err) {
+            console.error('[Background] Text extraction failed:', err);
+          }
+        })();
+        */
+        
+        // Background 3: Record metrics (silent)
         (async () => {
           try {
             const totalDuration = performance.now() - uploadStartTime;
@@ -717,13 +762,45 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
               textbook_id: textbookId,
               metadata: { file_size: file.size }
             });
-          } catch {
-            // Silent failure
-          }
+          } catch {}
         })();
       }
       
-      console.log('[Upload] ===== BACKGROUND PROCESSING TRIGGERED =====');
+      console.log('[Upload] ===== BACKGROUND COMPLETE: CHAT READY =====');
+    }
+  };
+
+  // 🚀 ON-DEMAND PAGE EXTRACTION (Lazy Extraction)
+  const extractPageOnDemand = async (textbookId: string, pdfUrl: string, pageNumber: number) => {
+    try {
+      console.log(`[LazyExtract] Extracting page ${pageNumber} on-demand...`);
+      toast.loading(`Extracting page ${pageNumber}...`, { id: 'page-extract' });
+      
+      const response = await fetch('/api/extract-single-page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          textbookId,
+          pdfUrl,
+          pageNumber,
+        }),
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log(`[LazyExtract] Page ${pageNumber} extracted ✓`);
+        toast.success(`Page ${pageNumber} ready!`, { id: 'page-extract' });
+        
+        // Reload page data to show extracted content
+        await loadPageData();
+      } else {
+        const error = await response.json();
+        console.error(`[LazyExtract] Failed to extract page ${pageNumber}:`, error);
+        toast.error(`Failed to extract page ${pageNumber}`, { id: 'page-extract' });
+      }
+    } catch (error) {
+      console.error(`[LazyExtract] Exception extracting page ${pageNumber}:`, error);
+      toast.error(`Error extracting page ${pageNumber}`, { id: 'page-extract' });
     }
   };
 
