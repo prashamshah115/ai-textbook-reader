@@ -247,6 +247,60 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Helper function to load page data with automatic retry for 406 errors
+  const loadPageDataWithRetry = async () => {
+    if (!currentTextbook) return { data: null, error: null };
+
+    try {
+      const result = await supabase
+        .from('pages')
+        .select('*')
+        .eq('textbook_id', currentTextbook.id)
+        .eq('page_number', currentPage)
+        .single();
+      
+      return result;
+    } catch (error: any) {
+      // Check if it's a 406 or auth error
+      const isAuthError = error?.code === '406' || 
+                         error?.code === 'PGRST301' || 
+                         error?.message?.includes('JWT') ||
+                         error?.message?.includes('session');
+      
+      if (isAuthError) {
+        console.log('[PageData] 406 error detected, refreshing session and retrying...');
+        
+        // Refresh session
+        const { error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) {
+          console.error('[PageData] Session refresh failed:', refreshError);
+          return { data: null, error };
+        }
+        
+        // Wait for token to propagate
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Retry once
+        try {
+          const retryResult = await supabase
+            .from('pages')
+            .select('*')
+            .eq('textbook_id', currentTextbook.id)
+            .eq('page_number', currentPage)
+            .single();
+          
+          console.log('[PageData] Retry successful');
+          return retryResult;
+        } catch (retryError) {
+          console.error('[PageData] Retry failed:', retryError);
+          return { data: null, error: retryError };
+        }
+      }
+      
+      return { data: null, error };
+    }
+  };
+
   // Load page data and AI content with retry logic
   const loadPageData = async (retryCount = 0) => {
     if (!currentTextbook) return;
@@ -254,24 +308,8 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
 
-      // FIX #1: Ensure valid session before querying
-      const hasValidSession = await ensureValidSession();
-      if (!hasValidSession) {
-        // Session is truly gone, can't proceed
-        toast.error('Session expired. Please refresh the page.');
-        setCurrentPageData(null);
-        setCurrentAIContent(null);
-        setLoading(false);
-        return;
-      }
-
-      // Get page data
-      const { data: pageData, error: pageError } = await supabase
-        .from('pages')
-        .select('*')
-        .eq('textbook_id', currentTextbook.id)
-        .eq('page_number', currentPage)
-        .single();
+      // Get page data with automatic retry for 406 errors
+      const { data: pageData, error: pageError } = await loadPageDataWithRetry();
 
       if (pageError) {
         // FIX: Retry logic for 406 errors (session timeout) 
@@ -546,14 +584,27 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
 
     try {
       console.log('[Upload] ===== CRITICAL PATH START =====');
+      console.log('[Upload] Idempotency key:', idempotencyKey);
       
       // Check if already uploaded
+      console.log('[Upload] Step 0: Checking for existing upload...');
       try {
-        const { data: existing } = await supabase
+        const idempotencyPromise = supabase
           .from('textbooks')
           .select('id')
           .eq('idempotency_key', idempotencyKey)
           .maybeSingle();
+
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Idempotency check timeout')), 5000)
+        );
+
+        const { data: existing, error: existingError } = await Promise.race([
+          idempotencyPromise,
+          timeoutPromise
+        ]) as any;
+        
+        console.log('[Upload] Step 0: Idempotency check result:', { existing, existingError });
         
         if (existing) {
           console.log('[Upload] Already uploaded, loading:', existing.id);
@@ -561,7 +612,12 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
           toast.success('Textbook already uploaded!');
           return existing.id;
         }
-      } catch {}
+        
+        console.log('[Upload] Step 0: No existing upload found, proceeding...');
+      } catch (idempotencyError) {
+        console.log('[Upload] Step 0: Idempotency check failed (non-critical):', idempotencyError);
+        console.log('[Upload] Step 0: Proceeding without idempotency check...');
+      }
 
       textbookId = crypto.randomUUID();
       console.log('[Upload] New textbook ID:', textbookId);
