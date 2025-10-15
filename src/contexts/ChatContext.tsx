@@ -81,7 +81,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         if (insertError) throw insertError;
         if (newConv) {
-          setConversationId(newConv.id);
+          setConversationId((newConv as any).id);
         }
       }
     } catch (error) {
@@ -116,8 +116,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       context.textbookMetadata = {
         title: currentTextbook!.title,
         totalPages: currentTextbook!.total_pages,
-        subject: currentTextbook!.metadata?.subject,
-        learningGoal: currentTextbook!.metadata?.learning_goal,
+        subject: (currentTextbook as any).metadata?.subject,
+        learningGoal: (currentTextbook as any).metadata?.learning_goal,
       };
       
       // If no page text yet, add helpful note
@@ -169,7 +169,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .eq('page_number', currentPage) as any;
 
       if (notes && notes.length > 0) {
-        context.userNotes = notes.map(n => n.content).join('\n\n');
+        context.userNotes = notes.map((n: any) => n.content).join('\n\n');
       }
 
       // Get AI-generated content if available
@@ -343,13 +343,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         timestamp: new Date().toISOString(),
       }];
 
-      const { error: updateError } = await supabase
-        .from('chat_conversations')
+      const { error: updateError } = await (supabase
+        .from('chat_conversations') as any)
         .update({
           messages: updatedMessages,
           context_pages: [currentPage],
           updated_at: new Date().toISOString(),
-        } as any)
+        })
         .eq('id', conversationId);
 
       if (updateError) {
@@ -393,12 +393,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (!conversationId) return;
 
     try {
-      await supabase
-        .from('chat_conversations')
+      await (supabase
+        .from('chat_conversations') as any)
         .update({
           messages: [],
           updated_at: new Date().toISOString(),
-        } as any)
+        })
         .eq('id', conversationId);
 
       setMessages([]);
