@@ -153,6 +153,7 @@ export default async function handler(req: Request) {
 }
 
 export const config = {
-  runtime: 'edge',
+  runtime: 'nodejs',
+  maxDuration: 10,
 };
 

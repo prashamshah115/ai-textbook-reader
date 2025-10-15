@@ -1,6 +1,7 @@
 {
   "name": "textbook-pdf-extraction-service",
   "version": "1.0.0",
+  "type": "module",
   "description": "Heavy PDF extraction service for AI Textbook Reader",
   "main": "server.js",
   "scripts": {

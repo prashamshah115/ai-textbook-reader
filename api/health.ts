@@ -6,7 +6,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-export default async function handler(req: Request) {
+export default async function handler(_req: Request) {
   const health: any = {
     status: 'healthy',
     timestamp: new Date().toISOString(),
