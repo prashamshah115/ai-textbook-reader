@@ -1,5 +1,7 @@
-import { X, Brain, FileText, Lightbulb } from 'lucide-react';
+import { X, Brain, FileText, Lightbulb, StickyNote } from 'lucide-react';
 import { Button } from './ui/button';
+import { useNotes } from '../contexts/NotesContext';
+import { useTextbook } from '../contexts/TextbookContext';
 
 interface SelectionToolbarProps {
   position: { x: number; y: number };
@@ -8,6 +10,14 @@ interface SelectionToolbarProps {
 }
 
 export function SelectionToolbar({ position, selectedText, onClose }: SelectionToolbarProps) {
+  const { addHighlightedText } = useNotes();
+  const { currentPage } = useTextbook();
+
+  const handleAddToNotes = async () => {
+    await addHighlightedText(selectedText, currentPage);
+    onClose();
+  };
+
   const handleExplain = () => {
     console.log('Explain:', selectedText);
     // This would trigger AI explanation in the right panel
@@ -35,6 +45,18 @@ export function SelectionToolbar({ position, selectedText, onClose }: SelectionT
         transform: 'translateX(-50%)'
       }}
     >
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 px-3 text-white hover:bg-green-700 text-sm bg-green-600"
+        onClick={handleAddToNotes}
+      >
+        <StickyNote className="h-3 w-3 mr-1" />
+        Add to Notes
+      </Button>
+
+      <div className="w-px h-4 bg-gray-600 mx-1" />
+      
       <Button
         variant="ghost"
         size="sm"

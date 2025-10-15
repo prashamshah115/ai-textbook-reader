@@ -25,6 +25,7 @@ interface NotesContextType {
   updateNoteTitle: (title: string) => void;
   deleteNote: (noteId: string) => Promise<void>;
   loadNotes: () => Promise<void>;
+  addHighlightedText: (text: string, pageNumber?: number) => Promise<void>;  // ✨ NEW
 }
 
 const NotesContext = createContext<NotesContextType | undefined>(undefined);
@@ -221,6 +222,94 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     setActiveNote({ ...activeNote, title });
   };
 
+  // 🔥 NEW: Add highlighted text to notes
+  const addHighlightedText = async (text: string, pageNumber?: number, retryCount = 0) => {
+    if (!user || !currentTextbook) {
+      toast.error('Please log in to add notes');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      
+      // Ensure valid session
+      const hasValidSession = await ensureValidSession();
+      if (!hasValidSession && retryCount === 0) {
+        await supabase.auth.refreshSession();
+        return addHighlightedText(text, pageNumber, 1);
+      }
+
+      const page = pageNumber || currentPage;
+      const timestamp = new Date().toLocaleString();
+      const noteContent = `📝 Highlighted from page ${page} (${timestamp})\n\n"${text}"\n\n---\n\n`;
+
+      // If there's an active note, append to it
+      if (activeNote) {
+        const updatedContent = activeNote.content + '\n' + noteContent;
+        
+        const { error } = await supabase
+          .from('user_notes')
+          .update({
+            content: updatedContent,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', activeNote.id);
+
+        if (error) {
+          if (retryCount === 0 && (error.code === '406' || error.message?.includes('JWT'))) {
+            await supabase.auth.refreshSession();
+            return addHighlightedText(text, pageNumber, 1);
+          }
+          throw error;
+        }
+
+        // Update local state
+        setActiveNote({ ...activeNote, content: updatedContent });
+        setNotes(prev => prev.map(n => 
+          n.id === activeNote.id 
+            ? { ...n, content: updatedContent, updated_at: new Date().toISOString() }
+            : n
+        ));
+        
+        toast.success('Added to current note!');
+      } else {
+        // Create new note with highlighted text
+        const { data, error } = await supabase
+          .from('user_notes')
+          .insert({
+            user_id: user.id,
+            textbook_id: currentTextbook.id,
+            page_number: page,
+            content: noteContent,
+          })
+          .select()
+          .single();
+
+        if (error) {
+          if (retryCount === 0 && (error.code === '406' || error.message?.includes('JWT'))) {
+            await supabase.auth.refreshSession();
+            return addHighlightedText(text, pageNumber, 1);
+          }
+          throw error;
+        }
+
+        const newNote: Note = {
+          ...data,
+          title: `Page ${page} highlights`
+        };
+
+        setNotes(prev => [newNote, ...prev]);
+        setActiveNote(newNote);
+        toast.success('Created new note with highlight!');
+      }
+    } catch (error) {
+      console.error('[Notes] Failed to add highlighted text:', error);
+      toast.error('Failed to save highlight');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Delete a note with retry logic
   const deleteNote = async (noteId: string, retryCount = 0) => {
     if (!user) return;
@@ -292,6 +381,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         updateNoteTitle,
         deleteNote,
         loadNotes,
+        addHighlightedText,  // ✨ NEW
       }}
     >
       {children}
