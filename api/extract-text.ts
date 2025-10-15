@@ -145,16 +145,19 @@ export default async function handler(req: Request) {
 
     // Optional: Try to enqueue job (for future queue-based processing)
     const idempotencyKey = `extract-${textbookId}`;
+    let jobId: string | null = null;
     try {
-      await supabase.rpc('enqueue_job', {
+      const { data: jobData } = await supabase.rpc('enqueue_job', {
         p_textbook_id: textbookId,
         p_type: 'extract_text',
         p_payload: { pdf_url: pdfUrl },
         p_idempotency_key: idempotencyKey,
         p_max_retries: 3
       });
+      jobId = jobData?.id || null;
     } catch {
       // Job queue not available - that's OK, Railway is already triggered
+      jobId = null;
     }
 
     // Optional: Emit event

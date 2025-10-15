@@ -17,9 +17,7 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 // 🔥 DAY 7: Guardrails
 const CONCURRENCY_LIMIT = 3;
-const TOKEN_BUDGET_PER_PAGE = 2000; // Max tokens to use per page
 const PAGE_TIMEOUT_MS = 15000; // 15s timeout per page
-const MAX_RETRIES = 3;
 
 interface ProcessRequest {
   textbookId: string;
