@@ -1,6 +1,7 @@
 // 🔥 FIX BUG #3: On-demand single page extraction with retry logic
 import { createClient } from '@supabase/supabase-js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import pdfParse from 'pdf-parse';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -105,7 +106,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log(`[Extract] Extracting text from page ${pageNumber}`);
     const extractStart = Date.now();
     
-    const pdfParse = require('pdf-parse');
     const pdfData = await pdfParse(buffer, {
       max: pageNumber, // Only parse up to requested page
     });
