@@ -538,11 +538,16 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
   ): Promise<string> => {
     if (!user) throw new Error('User not authenticated');
 
+    const idempotencyKey = `upload-${file.name}-${file.size}-${file.lastModified}-${user.id}`;
+    let textbookId: string | null = null;
+    let pdfUrl: string | null = null;
+    let quickMetadata: any = null;
+    const uploadStartTime = performance.now();
+
     try {
-      // Generate idempotency key to prevent duplicate uploads
-      const idempotencyKey = `upload-${file.name}-${file.size}-${file.lastModified}-${user.id}`;
+      console.log('[Upload] ===== CRITICAL PATH START =====');
       
-      // Check if already uploaded (only if column exists)
+      // Check if already uploaded
       try {
         const { data: existing } = await supabase
           .from('textbooks')
@@ -551,18 +556,15 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
           .maybeSingle();
         
         if (existing) {
-          console.log('[Upload] PDF already uploaded, loading existing:', existing.id);
+          console.log('[Upload] Already uploaded, loading:', existing.id);
           await loadTextbook(existing.id);
           toast.success('Textbook already uploaded!');
           return existing.id;
         }
-      } catch (error) {
-        // idempotency_key column doesn't exist yet - skip check
-        console.log('[Upload] Idempotency check skipped (column not added yet)');
-      }
+      } catch {}
 
-      const textbookId = crypto.randomUUID();
-      const uploadStartTime = performance.now();
+      textbookId = crypto.randomUUID();
+      console.log('[Upload] New textbook ID:', textbookId);
 
       // 🔥 Step 1: Extract metadata ONLY (< 200ms)
       onProgress?.(5, 'metadata');
@@ -651,30 +653,59 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         duration: 3000 
       });
       
-      // Record upload performance metric (user_id auto-populated by DEFAULT)
-      const { error: metricsError } = await supabase.from('metrics').insert({
-        metric_name: 'upload_duration',
-        value: totalDuration,
-        unit: 'ms',
-        textbook_id: textbookId,
-        metadata: {
-          file_size: file.size,
-          total_pages: quickMetadata.totalPages
-        }
-      });
-      
-      if (metricsError) {
-        console.log('[Upload] Metrics insert failed (non-critical):', metricsError.message);
-      }
-      
-      // 🔥 Step 5: Trigger background jobs (fire-and-forget)
-      triggerBackgroundProcessing(textbookId, pdfUrl, metadata, quickMetadata);
+      console.log('[Upload] ===== CRITICAL PATH COMPLETE =====');
       
       return textbookId;
+      
     } catch (error) {
-      console.error('[Upload] Error:', error);
+      console.error('[Upload] CRITICAL PATH FAILED:', error);
       toast.error('Failed to upload textbook');
       throw error;
+      
+    } finally {
+      // ============================================================
+      // OPTIONAL PATH - Always runs, can't break upload
+      // ============================================================
+      console.log('[Upload] ===== OPTIONAL PATH START =====');
+      
+      if (textbookId && pdfUrl && quickMetadata) {
+        // Optional 1: Record metrics (silent failure OK)
+        try {
+          const totalDuration = performance.now() - uploadStartTime;
+          console.log('[Upload] Recording metrics...');
+          const { error: metricsError } = await supabase.from('metrics').insert({
+            metric_name: 'upload_duration',
+            value: totalDuration,
+            unit: 'ms',
+            textbook_id: textbookId,
+            metadata: {
+              file_size: file.size,
+              total_pages: quickMetadata.totalPages
+            }
+          });
+          
+          if (metricsError) {
+            console.log('[Upload] Metrics failed (non-critical):', metricsError.message);
+          } else {
+            console.log('[Upload] Metrics recorded ✓');
+          }
+        } catch (err) {
+          console.log('[Upload] Metrics exception (non-critical):', err);
+        }
+        
+        // Optional 2: Trigger background jobs (GUARANTEED to run)
+        try {
+          console.log('[Upload] Triggering background jobs...');
+          triggerBackgroundProcessing(textbookId, pdfUrl, metadata, quickMetadata);
+          console.log('[Upload] Background jobs triggered ✓');
+        } catch (err) {
+          console.error('[Upload] Background trigger exception:', err);
+        }
+      } else {
+        console.warn('[Upload] Skipping optional tasks - upload may have failed');
+      }
+      
+      console.log('[Upload] ===== ALL PATHS COMPLETE =====');
     }
   };
 
@@ -685,9 +716,13 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     metadata: UploadMetadata,
     quickMetadata: any
   ) => {
-    console.log('[Background] Starting background jobs for:', textbookId);
+    console.log('[Background] ━━━━━ BACKGROUND JOBS START ━━━━━');
+    console.log('[Background] Textbook ID:', textbookId);
+    console.log('[Background] PDF URL:', pdfUrl);
+    console.log('[Background] Total pages:', quickMetadata.totalPages);
     
     // Job 1: Web context fetch
+    console.log('[Background] Job 1: Starting web context fetch...');
     fetch('/api/fetch-textbook-context', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -697,12 +732,22 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         author: quickMetadata.author,
         subject: metadata.subject || quickMetadata.subject,
       }),
-    }).catch(err => {
-      console.log('[Background] Web context failed (non-critical):', err.message);
-    });
+    })
+      .then(res => {
+        console.log('[Background] Web context response:', res.status);
+        return res.json();
+      })
+      .then(data => {
+        console.log('[Background] Web context result:', data);
+      })
+      .catch(err => {
+        console.log('[Background] Web context failed:', err.message);
+      });
     
     // Job 2: Text extraction (with detailed logging)
-    console.log('[Background] Triggering text extraction for:', textbookId);
+    console.log('[Background] Job 2: Starting text extraction...');
+    console.log('[Background] Calling /api/extract-text with:', { textbookId, pdfUrl });
+    
     fetch('/api/extract-text', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -712,24 +757,28 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       }),
     })
       .then(async (response) => {
+        console.log('[Background] Text extraction API response:', response.status, response.statusText);
+        
         if (!response.ok) {
           const errorData = await response.json();
           console.error('[Background] Text extraction API error:', errorData);
-          toast.error(`Extraction failed: ${errorData.error || 'Unknown error'}`);
+          toast.error(`Extraction failed: ${errorData.error || 'Unknown error'}`, { duration: 5000 });
         } else {
           const result = await response.json();
-          console.log('[Background] Text extraction started:', result);
-          toast.success('Background extraction started!', { duration: 3000 });
+          console.log('[Background] Text extraction result:', result);
+          toast.success('📊 Background extraction started!', { duration: 4000 });
         }
       })
       .catch(err => {
-        console.error('[Background] Text extraction request failed:', err);
-        toast.error('Failed to start extraction. Check if Railway is running.');
+        console.error('[Background] Text extraction network error:', err);
+        toast.error('Failed to start extraction. Check Railway status.', { duration: 5000 });
       });
     
-    // 🔥 DAY 7: Job 3 - Process first 10 pages immediately (parallel)
+    // Job 3: Parallel AI processing for first 10 pages
+    console.log('[Background] Job 3: Starting parallel AI processing...');
     const totalPages = quickMetadata.totalPages || 0;
     const firstPages = Array.from({ length: Math.min(10, totalPages) }, (_, i) => i + 1);
+    console.log('[Background] Will process pages:', firstPages);
     
     if (firstPages.length > 0) {
       fetch('/api/process-pages-parallel', {
@@ -741,24 +790,34 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         }),
       })
         .then(async (response) => {
+          console.log('[Background] Parallel AI response:', response.status);
+          
           if (response.ok) {
             const result = await response.json();
-            console.log(`[Background] Processed ${result.processed} pages with AI`);
-            toast.success(`AI features ready for first ${result.processed} pages!`, {
+            console.log('[Background] Parallel AI result:', result);
+            toast.success(`🤖 AI features ready for first ${result.processed} pages!`, {
               duration: 4000,
             });
+          } else {
+            const error = await response.json();
+            console.error('[Background] Parallel AI error:', error);
           }
         })
         .catch(err => {
-          console.log('[Background] Parallel AI failed (non-critical):', err.message);
+          console.error('[Background] Parallel AI network error:', err);
         });
+    } else {
+      console.log('[Background] No pages to process (empty PDF?)');
     }
     
     // Show background processing toast
+    console.log('[Background] Showing background processing toast');
     toast.info(
-      'Processing in background: extracting text, generating AI content...',
+      '⚙️ Processing in background: extracting text, generating AI content...',
       { duration: 5000 }
     );
+    
+    console.log('[Background] ━━━━━ ALL JOBS TRIGGERED ━━━━━');
   };
 
   // Legacy function kept for compatibility - but now just calls new flow
