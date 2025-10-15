@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Eye, EyeOff, CheckCircle, Clock } from 'lucide-react';
+import { Send, Loader2, Eye, EyeOff, CheckCircle, Clock, Mic, MicOff } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Textarea } from '../ui/textarea';
 import { useChat } from '../../contexts/ChatContext';
 import { useTextbook } from '../../contexts/TextbookContext';
 import { supabase } from '../../lib/supabase';
+import { toast } from 'sonner';
 
 export function ChatPanel() {
   const { messages, loading, sendMessage, currentContext } = useChat();
@@ -13,7 +14,55 @@ export function ChatPanel() {
   const [showContext, setShowContext] = useState(false);
   const [contextReady, setContextReady] = useState(false);
   const [contextLoading, setContextLoading] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recognition, setRecognition] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 🎙️ Initialize Speech Recognition (Voice-to-Text)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      console.log('[Voice] Speech recognition not supported in this browser');
+      return;
+    }
+    
+    const recognitionInstance = new SpeechRecognition();
+    recognitionInstance.continuous = false;
+    recognitionInstance.interimResults = false;
+    recognitionInstance.lang = 'en-US';
+    
+    recognitionInstance.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      console.log('[Voice] Transcript:', transcript);
+      setInput(transcript);
+      setIsRecording(false);
+      toast.success('Voice captured!', { id: 'voice' });
+    };
+    
+    recognitionInstance.onerror = (event: any) => {
+      console.error('[Voice] Error:', event.error);
+      setIsRecording(false);
+      
+      if (event.error === 'no-speech') {
+        toast.error('No speech detected. Please try again.', { id: 'voice' });
+      } else if (event.error === 'not-allowed') {
+        toast.error('Microphone permission denied', { id: 'voice' });
+      } else {
+        toast.error('Voice recognition failed. Please try again.', { id: 'voice' });
+      }
+    };
+    
+    recognitionInstance.onend = () => {
+      setIsRecording(false);
+      toast.dismiss('voice');
+    };
+    
+    setRecognition(recognitionInstance);
+    console.log('[Voice] Speech recognition initialized');
+  }, []);
 
   // Check web context status
   useEffect(() => {
@@ -48,6 +97,29 @@ export function ChatPanel() {
     const messageText = input;
     setInput('');
     await sendMessage(messageText);
+  };
+
+  // 🎙️ Toggle voice recording
+  const toggleRecording = () => {
+    if (!recognition) {
+      toast.error('Voice input not supported in this browser. Try Chrome or Safari.');
+      return;
+    }
+    
+    if (isRecording) {
+      recognition.stop();
+      setIsRecording(false);
+      toast.dismiss('voice');
+    } else {
+      try {
+        recognition.start();
+        setIsRecording(true);
+        toast.loading('🎤 Listening... Speak now!', { id: 'voice' });
+      } catch (error) {
+        console.error('[Voice] Start error:', error);
+        toast.error('Failed to start voice input', { id: 'voice' });
+      }
+    }
   };
 
   return (
@@ -172,22 +244,44 @@ export function ChatPanel() {
                 handleSend();
               }
             }}
-            placeholder="Ask about this page..."
+            placeholder="Ask about this page... (or use voice 🎙️)"
             className="min-h-[60px] text-xs resize-none"
-            disabled={loading}
+            disabled={loading || isRecording}
           />
-          <Button
-            onClick={handleSend}
-            size="sm"
-            className="h-[60px] px-3"
-            disabled={!input.trim() || loading}
-          >
-            {loading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Send className="w-3.5 h-3.5" />
-            )}
-          </Button>
+          <div className="flex flex-col gap-2">
+            <Button
+              onClick={toggleRecording}
+              size="sm"
+              variant={isRecording ? "destructive" : "outline"}
+              className="h-7 px-3"
+              disabled={loading}
+              title={isRecording ? "Stop recording" : "Voice input (Chrome/Safari)"}
+            >
+              {isRecording ? (
+                <>
+                  <MicOff className="w-3 h-3 mr-1" />
+                  <span className="text-xs">Stop</span>
+                </>
+              ) : (
+                <>
+                  <Mic className="w-3 h-3 mr-1" />
+                  <span className="text-xs">Voice</span>
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={handleSend}
+              size="sm"
+              className="h-[45px] px-3"
+              disabled={!input.trim() || loading}
+            >
+              {loading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Send className="w-3.5 h-3.5" />
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
