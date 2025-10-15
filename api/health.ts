@@ -1,121 +1,114 @@
-// Health Check Endpoint - Tests API configuration
-export default async function handler(_req: Request) {
-  const results: any = {
-    status: 'ok',
+// 🔥 PHASE 4: Health endpoint for queue monitoring
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!
+);
+
+export default async function handler(req: Request) {
+  const health: any = {
+    status: 'healthy',
     timestamp: new Date().toISOString(),
     checks: {},
   };
 
-  // Check 1: Environment Variables
-  results.checks.env = {
-    GROQ_API_KEY: process.env.GROQ_API_KEY ? '✅ Set' : '❌ Missing',
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY ? '✅ Set' : '❌ Missing',
-    SUPABASE_URL: process.env.SUPABASE_URL ? '✅ Set' : '❌ Missing',
-    SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY ? '✅ Set' : '❌ Missing',
-  };
+  try {
+    // 1. Check database connection
+    const dbStart = Date.now();
+    const { error: dbError } = await supabase
+      .from('textbooks')
+      .select('id')
+      .limit(1);
 
-  // Check 2: GROQ API Connection
-  if (process.env.GROQ_API_KEY) {
-    try {
-      const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [
-            { role: 'system', content: 'You are a helpful assistant.' },
-            { role: 'user', content: 'test' }
-          ],
-          max_tokens: 5,
-        }),
-      });
+    if (dbError) {
+      health.checks.database = { status: 'unhealthy', error: dbError.message };
+      health.status = 'unhealthy';
+    } else {
+      health.checks.database = {
+        status: 'healthy',
+        latency: Date.now() - dbStart,
+      };
+    }
 
-      if (groqResponse.ok) {
-        results.checks.groq = '✅ Connected';
-      } else {
-        const errorText = await groqResponse.text();
-        results.checks.groq = `❌ Error ${groqResponse.status}: ${errorText.substring(0, 100)}`;
+    // 2. Check queue depth
+    const { count: queuedCount, error: queueError } = await supabase
+      .from('jobs')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'queued');
+
+    if (queueError) {
+      health.checks.queue = { status: 'error', error: queueError.message };
+      health.status = 'degraded';
+    } else {
+      health.checks.queue = {
+        status: 'healthy',
+        pending: queuedCount || 0,
+      };
+
+      // Alert if queue is building up
+      if (queuedCount && queuedCount > 100) {
+        health.status = 'degraded';
+        health.checks.queue.warning = 'High queue depth';
       }
-    } catch (error) {
-      results.checks.groq = `❌ ${error instanceof Error ? error.message : 'Unknown error'}`;
     }
-  } else {
-    results.checks.groq = '⏭️ Skipped (no API key)';
+
+    // 3. Check for stuck jobs (processing > 5 minutes)
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { count: stuckCount } = await supabase
+      .from('jobs')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'processing')
+      .lt('started_at', fiveMinAgo);
+
+    health.checks.stuck_jobs = {
+      status: stuckCount && stuckCount > 0 ? 'degraded' : 'healthy',
+      count: stuckCount || 0,
+    };
+
+    if (stuckCount && stuckCount > 5) {
+      health.status = 'unhealthy';
+      health.checks.stuck_jobs.error = 'Many jobs stuck in processing';
+    }
+
+    // 4. Check failed jobs (last hour)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count: failedCount } = await supabase
+      .from('jobs')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'failed')
+      .gt('completed_at', oneHourAgo);
+
+    health.checks.failed_jobs = {
+      status: 'info',
+      count: failedCount || 0,
+      period: 'last_hour',
+    };
+
+    if (failedCount && failedCount > 20) {
+      health.status = 'degraded';
+      health.checks.failed_jobs.warning = 'High failure rate';
+    }
+
+    // 5. Get queue statistics by priority
+    const { data: queueStats } = await supabase.rpc('get_queue_stats');
+
+    if (queueStats) {
+      health.checks.queue.stats = queueStats;
+    }
+
+  } catch (error: any) {
+    console.error('[Health] Error:', error);
+    health.status = 'unhealthy';
+    health.error = error.message;
   }
 
-  // Check 3: OpenAI API Connection
-  if (process.env.OPENAI_API_KEY) {
-    try {
-      const openaiResponse = await fetch('https://api.openai.com/v1/models', {
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-      });
+  // Return appropriate HTTP status code
+  const statusCode = health.status === 'healthy' ? 200 : 503;
 
-      if (openaiResponse.ok) {
-        results.checks.openai = '✅ Connected';
-      } else {
-        results.checks.openai = `❌ Error ${openaiResponse.status}`;
-      }
-    } catch (error) {
-      results.checks.openai = `❌ ${error instanceof Error ? error.message : 'Unknown error'}`;
-    }
-  } else {
-    results.checks.openai = '⏭️ Skipped (no API key)';
-  }
-
-  // Check 4: Supabase Connection
-  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
-    try {
-      const supabaseResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/`, {
-        headers: {
-          'apikey': process.env.SUPABASE_SERVICE_KEY,
-          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
-        },
-      });
-
-      if (supabaseResponse.ok || supabaseResponse.status === 404) {
-        results.checks.supabase = '✅ Connected';
-      } else {
-        results.checks.supabase = `❌ Error ${supabaseResponse.status}`;
-      }
-    } catch (error) {
-      results.checks.supabase = `❌ ${error instanceof Error ? error.message : 'Unknown error'}`;
-    }
-  } else {
-    results.checks.supabase = '⏭️ Skipped (missing credentials)';
-  }
-
-  // Determine overall status
-  const hasErrors = Object.values(results.checks).some(check => {
-    if (typeof check === 'string') {
-      return check.includes('❌');
-    }
-    if (typeof check === 'object' && check !== null) {
-      return Object.values(check).some(v => typeof v === 'string' && v.includes('❌'));
-    }
-    return false;
-  });
-
-  if (hasErrors) {
-    results.status = 'error';
-  }
-
-  return new Response(
-    JSON.stringify(results, null, 2),
-    {
-      status: hasErrors ? 500 : 200,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }
-  );
+  return Response.json(health, { status: statusCode });
 }
 
 export const config = {
   runtime: 'edge',
 };
-
