@@ -31,11 +31,19 @@ export async function extractMetadataOnly(
   file: File
 ): Promise<PDFMetadata> {
   try {
+    console.log('[Metadata Extract] Starting extraction for:', file.name, file.size, 'bytes');
+    
     const arrayBuffer = await file.arrayBuffer();
+    console.log('[Metadata Extract] ArrayBuffer created, size:', arrayBuffer.byteLength);
+    
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    console.log('[Metadata Extract] Loading task created, waiting for PDF...');
+    
     const pdf = await loadingTask.promise;
+    console.log('[Metadata Extract] PDF loaded, pages:', pdf.numPages);
 
     const metadata = await pdf.getMetadata();
+    console.log('[Metadata Extract] Metadata extracted:', metadata.info);
     
     return {
       title: metadata.info?.Title || file.name.replace('.pdf', ''),
@@ -45,7 +53,13 @@ export async function extractMetadataOnly(
     };
   } catch (error) {
     console.error('[Metadata Extract] Error:', error);
-    throw new Error('Failed to extract PDF metadata');
+    
+    // Fallback: Return basic metadata without PDF parsing
+    console.log('[Metadata Extract] Falling back to basic metadata');
+    return {
+      title: file.name.replace('.pdf', ''),
+      totalPages: 1, // Unknown, will be updated later
+    };
   }
 }
 

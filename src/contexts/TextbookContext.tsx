@@ -570,23 +570,42 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       onProgress?.(5, 'metadata');
       toast.loading('Reading PDF...', { id: 'upload' });
       
-      const quickMetadata = await extractMetadataOnly(file);
+      console.log('[Upload] Step 1: Starting metadata extraction...');
+      const quickMetadata = await Promise.race([
+        extractMetadataOnly(file),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('PDF metadata extraction timeout')), 10000)
+        )
+      ]) as any;
+      console.log('[Upload] Step 1: Metadata extracted:', quickMetadata);
       
       // 🔥 Step 2: Upload PDF to storage immediately (2-3s)
       onProgress?.(10, 'uploading');
       toast.loading('Uploading PDF...', { id: 'upload' });
       
       const filePath = `${user.id}/${textbookId}.pdf`;
+      console.log('[Upload] Step 2: Starting PDF upload to storage...', { filePath, fileSize: file.size });
       
       // Upload with proper headers for caching and range requests
-      const { error: uploadError } = await supabase.storage
+      const uploadPromise = supabase.storage
         .from('textbook-pdfs')
         .upload(filePath, file, {
           cacheControl: '31536000', // 1 year cache
           upsert: false,
         });
 
-      if (uploadError) throw uploadError;
+      const uploadTimeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('PDF upload timeout')), 60000)
+      );
+
+      const { error: uploadError } = await Promise.race([uploadPromise, uploadTimeoutPromise]) as any;
+
+      if (uploadError) {
+        console.error('[Upload] Step 2: Upload failed:', uploadError);
+        throw uploadError;
+      }
+      
+      console.log('[Upload] Step 2: PDF uploaded successfully');
 
       // Get public URL
       const { data: urlData } = supabase.storage
