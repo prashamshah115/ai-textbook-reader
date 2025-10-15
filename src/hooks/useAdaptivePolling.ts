@@ -251,7 +251,7 @@ function TextbookStatus({ textbookId }) {
         .from('textbooks')
         .select('processing_progress')
         .eq('id', textbookId)
-        .single();
+        .maybeSingle();
       return data;
     },
     onData: (data) => {
@@ -283,7 +283,7 @@ function JobStatus({ jobId }) {
         .from('jobs')
         .select('*')
         .eq('id', jobId)
-        .single();
+        .maybeSingle();
       return data;
     },
     onData: (job) => {

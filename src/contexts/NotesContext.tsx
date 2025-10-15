@@ -127,7 +127,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           content: '',
         })
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) {
         // Retry on auth errors
@@ -283,7 +283,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
             content: noteContent,
           })
           .select()
-          .single();
+          .maybeSingle();
 
         if (error) {
           if (retryCount === 0 && (error.code === '406' || error.message?.includes('JWT'))) {

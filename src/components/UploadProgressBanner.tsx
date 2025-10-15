@@ -30,7 +30,7 @@ export function UploadProgressBanner() {
           .from('textbooks')
           .select('processing_status, processing_progress, total_pages')
           .eq('id', currentTextbook.id)
-          .single();
+          .maybeSingle();
 
         if (textbook) {
           setProcessingStatus(textbook.processing_status);

@@ -34,7 +34,7 @@ export function SummaryPanel({ onHeadingClick }: SummaryPanelProps) {
           .eq('textbook_id', currentTextbook.id)
           .lte('page_start', currentPage)
           .gte('page_end', currentPage)
-          .single();
+          .maybeSingle();
 
         if (chapterError && chapterError.code !== 'PGRST116') {
           console.error('[SummaryPanel] Error loading chapter:', chapterError);

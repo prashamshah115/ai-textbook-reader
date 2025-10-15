@@ -42,7 +42,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .eq('textbook_id', currentTextbook.id)
         .order('updated_at', { ascending: false })
         .limit(1)
-        .single() as any;
+        .maybeSingle() as any;
 
       if (error && error.code !== 'PGRST116') {
         // Handle 406 session errors
@@ -77,7 +77,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             messages: [],
           } as any)
           .select()
-          .single();
+          .maybeSingle();
 
         if (insertError) throw insertError;
         if (newConv) {

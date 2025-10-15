@@ -120,7 +120,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         .from('textbooks')
         .select('processing_status, processing_progress, ai_processing_status, ai_processing_progress')
         .eq('id', currentTextbook.id)
-        .single();
+        .maybeSingle();
       
       return data;
     },
@@ -229,7 +229,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         .from('textbooks')
         .select('*')
         .eq('id', textbookId)
-        .single();
+        .maybeSingle();
 
       if (error) {
         // Check if it's a 406 or auth error and retry once
@@ -262,7 +262,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         .select('*')
         .eq('textbook_id', currentTextbook.id)
         .eq('page_number', currentPage)
-        .single();
+        .maybeSingle();
       
       return result;
     } catch (error: any) {
@@ -292,7 +292,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
             .select('*')
             .eq('textbook_id', currentTextbook.id)
             .eq('page_number', currentPage)
-            .single();
+            .maybeSingle();
           
           console.log('[PageData] Retry successful');
           return retryResult;
@@ -352,7 +352,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
           .from('ai_processed_content')
           .select('*')
           .eq('page_id', pageData.id)
-          .single();
+          .maybeSingle();
 
         if (aiError && aiError.code !== 'PGRST116') {
           // PGRST116 = no rows returned, which is ok
@@ -391,7 +391,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         .from('textbooks')
         .select('processing_status, processing_progress, processing_error')
         .eq('id', textbookId)
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error('[Polling] Error:', error);
@@ -434,7 +434,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         .from('textbooks')
         .select('ai_processing_status, ai_processing_progress, ai_processing_error')
         .eq('id', textbookId)
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error('[AI Polling] Error:', error);
@@ -535,7 +535,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
           .from('textbooks')
           .select('processing_status, processing_progress, total_pages')
           .eq('id', textbookId)
-          .single();
+          .maybeSingle();
 
         if (textbook?.processing_status === 'completed') {
           clearInterval(pollInterval);
