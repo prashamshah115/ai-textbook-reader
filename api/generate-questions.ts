@@ -103,7 +103,7 @@ Generate ${count} well-structured questions in JSON format:
 Create a mix of easy, medium, and hard questions.`;
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4',
+      model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: pageTexts.slice(0, 8000) }

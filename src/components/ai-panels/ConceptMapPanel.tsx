@@ -38,8 +38,11 @@ export function ConceptMapPanel() {
 
     try {
       // Generate for ±5 pages around current page
+      const totalPages = currentTextbook.total_pages || 100;
       const pageStart = Math.max(1, currentPage - 5);
-      const pageEnd = Math.min(currentTextbook.total_pages, currentPage + 5);
+      const pageEnd = Math.max(pageStart + 1, Math.min(totalPages, currentPage + 5));
+
+      console.log(`[ConceptMap] Generating for pages ${pageStart}-${pageEnd}`);
 
       const response = await fetch('/api/generate-concept-map', {
         method: 'POST',

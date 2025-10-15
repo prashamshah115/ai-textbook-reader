@@ -48,7 +48,7 @@ export default async function handler(req: Request) {
 
     // Generate concept map
     const response = await openai.chat.completions.create({
-      model: 'gpt-4',
+      model: 'gpt-4o-mini',
       messages: [{
         role: 'system',
         content: `Extract key concepts and their relationships from the text.
