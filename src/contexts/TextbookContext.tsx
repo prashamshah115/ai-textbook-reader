@@ -576,159 +576,89 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
   ): Promise<string> => {
     if (!user) throw new Error('User not authenticated');
 
-    const idempotencyKey = `upload-${file.name}-${file.size}-${file.lastModified}-${user.id}`;
-    let textbookId: string | null = null;
+    const textbookId = crypto.randomUUID();
     let pdfUrl: string | null = null;
-    let quickMetadata: any = null;
+    let quickMetadata: any = { title: file.name.replace('.pdf', ''), totalPages: 1 };
     const uploadStartTime = performance.now();
 
     try {
-      console.log('[Upload] ===== CRITICAL PATH START =====');
-      console.log('[Upload] Idempotency key:', idempotencyKey);
+      console.log('[Upload] ===== INSTANT UPLOAD START =====');
+      console.log('[Upload] Textbook ID:', textbookId);
       
-      // Check if already uploaded
-      console.log('[Upload] Step 0: Checking for existing upload...');
-      try {
-        const idempotencyPromise = supabase
-          .from('textbooks')
-          .select('id')
-          .eq('idempotency_key', idempotencyKey)
-          .maybeSingle();
-
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Idempotency check timeout')), 5000)
-        );
-
-        const { data: existing, error: existingError } = await Promise.race([
-          idempotencyPromise,
-          timeoutPromise
-        ]) as any;
-        
-        console.log('[Upload] Step 0: Idempotency check result:', { existing, existingError });
-        
-        if (existing) {
-          console.log('[Upload] Already uploaded, loading:', existing.id);
-          await loadTextbook(existing.id);
-          toast.success('Textbook already uploaded!');
-          return existing.id;
-        }
-        
-        console.log('[Upload] Step 0: No existing upload found, proceeding...');
-      } catch (idempotencyError) {
-        console.log('[Upload] Step 0: Idempotency check failed (non-critical):', idempotencyError);
-        console.log('[Upload] Step 0: Proceeding without idempotency check...');
-      }
-
-      textbookId = crypto.randomUUID();
-      console.log('[Upload] New textbook ID:', textbookId);
-
-      // 🔥 Step 1: Extract metadata ONLY (< 200ms)
-      onProgress?.(5, 'metadata');
-      toast.loading('Reading PDF...', { id: 'upload' });
-      
-      console.log('[Upload] Step 1: Starting metadata extraction...');
-      const quickMetadata = await Promise.race([
-        extractMetadataOnly(file),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('PDF metadata extraction timeout')), 10000)
-        )
-      ]) as any;
-      console.log('[Upload] Step 1: Metadata extracted:', quickMetadata);
-      
-      // 🔥 Step 2: Upload PDF to storage immediately (2-3s)
+      // 🚀 STEP 1: Upload PDF to storage FIRST (this is most reliable)
       onProgress?.(10, 'uploading');
       toast.loading('Uploading PDF...', { id: 'upload' });
       
       const filePath = `${user.id}/${textbookId}.pdf`;
-      console.log('[Upload] Step 2: Starting PDF upload to storage...', { filePath, fileSize: file.size });
+      console.log('[Upload] Step 1: Uploading PDF...', { filePath, fileSize: file.size });
       
-      // Upload with proper headers for caching and range requests
-      const uploadPromise = supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('textbook-pdfs')
         .upload(filePath, file, {
-          cacheControl: '31536000', // 1 year cache
+          cacheControl: '31536000',
           upsert: false,
         });
 
-      const uploadTimeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('PDF upload timeout')), 60000)
-      );
-
-      const { error: uploadError } = await Promise.race([uploadPromise, uploadTimeoutPromise]) as any;
-
       if (uploadError) {
-        console.error('[Upload] Step 2: Upload failed:', uploadError);
+        console.error('[Upload] Upload failed:', uploadError);
         throw uploadError;
       }
       
-      console.log('[Upload] Step 2: PDF uploaded successfully');
+      console.log('[Upload] Step 1: PDF uploaded ✓');
 
       // Get public URL
       const { data: urlData } = supabase.storage
         .from('textbook-pdfs')
         .getPublicUrl(filePath);
 
-      const pdfUrl = urlData.publicUrl;
-      const uploadDuration = performance.now() - uploadStartTime;
+      pdfUrl = urlData.publicUrl;
       
-      console.log(`[Upload] PDF uploaded in ${uploadDuration.toFixed(0)}ms`);
-
-      // 🔥 Step 3: Create textbook record with status='pending'
-      onProgress?.(40, 'saving');
-      toast.loading('Preparing textbook...', { id: 'upload' });
+      // 🚀 STEP 2: Create minimal DB record (just enough to show PDF)
+      onProgress?.(40, 'creating');
+      toast.loading('Setting up viewer...', { id: 'upload' });
       
-      // Build textbook record (backwards compatible)
-      const textbookRecord: any = {
-        id: textbookId,
-        user_id: user.id,
-        title: metadata.title || quickMetadata.title || file.name.replace('.pdf', ''),
-        pdf_url: pdfUrl,
-        total_pages: quickMetadata.totalPages,
-        processing_status: 'pending', // Fixed: was 'queued' but constraint only allows pending/processing/completed/failed
-        processing_progress: 0,
-        ai_processing_status: 'pending',
-        ai_processing_progress: 0,
-        metadata: {
-          subject: metadata.subject,
-          learning_goal: metadata.learningGoal,
-          original_filename: file.name,
-          file_size: file.size,
-          author: quickMetadata.author,
-          pdf_subject: quickMetadata.subject,
-        },
-      };
-
-      // Add new columns only if they exist (backwards compatible)
-      try {
-        textbookRecord.idempotency_key = idempotencyKey;
-        textbookRecord.upload_started_at = new Date().toISOString();
-        textbookRecord.upload_completed_at = new Date().toISOString();
-      } catch {
-        console.log('[Upload] New columns not available yet');
-      }
-
+      console.log('[Upload] Step 2: Creating DB record...');
       const { error: textbookError } = await supabase
         .from('textbooks')
-        .insert(textbookRecord);
+        .insert({
+          id: textbookId,
+          user_id: user.id,
+          title: metadata.title || file.name.replace('.pdf', ''),
+          pdf_url: pdfUrl,
+          total_pages: 1, // Will be updated in background
+          processing_status: 'pending',
+          processing_progress: 0,
+          ai_processing_status: 'pending',
+          ai_processing_progress: 0,
+          metadata: {
+            subject: metadata.subject,
+            learning_goal: metadata.learningGoal,
+            original_filename: file.name,
+            file_size: file.size,
+          },
+        });
 
-      if (textbookError) throw textbookError;
+      if (textbookError) {
+        console.error('[Upload] DB insert failed:', textbookError);
+        throw textbookError;
+      }
       
-      // 🔥 Step 4: Load PDF viewer IMMEDIATELY (user sees pages NOW!)
+      console.log('[Upload] Step 2: DB record created ✓');
+      
+      // 🚀 STEP 3: Show PDF viewer IMMEDIATELY
       onProgress?.(70, 'loading');
+      console.log('[Upload] Step 3: Loading PDF viewer NOW...');
+      
       await loadTextbooks();
       await loadTextbook(textbookId);
       
+      const totalDuration = performance.now() - uploadStartTime;
+      console.log(`[Upload] ✅ PDF READY in ${totalDuration.toFixed(0)}ms - USER CAN READ!`);
+      
+      toast.success('📚 PDF ready! Background processing started.', { id: 'upload' });
       onProgress?.(100, 'done');
       
-      const totalDuration = performance.now() - uploadStartTime;
-      console.log(`[Upload] Total upload flow: ${totalDuration.toFixed(0)}ms`);
-      
-      toast.success(`📚 PDF ready! Reading ${quickMetadata.totalPages} pages...`, { 
-        id: 'upload',
-        duration: 3000 
-      });
-      
-      console.log('[Upload] ===== CRITICAL PATH COMPLETE =====');
+      console.log('[Upload] ===== INSTANT UPLOAD COMPLETE =====');
       
       return textbookId;
       
@@ -739,48 +669,61 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       
     } finally {
       // ============================================================
-      // OPTIONAL PATH - Always runs, can't break upload
+      // BACKGROUND PATH - Extract metadata and trigger processing
       // ============================================================
-      console.log('[Upload] ===== OPTIONAL PATH START =====');
+      console.log('[Upload] ===== BACKGROUND PROCESSING START =====');
       
-      if (textbookId && pdfUrl && quickMetadata) {
-        // Optional 1: Record metrics (silent failure OK)
-        try {
-          const totalDuration = performance.now() - uploadStartTime;
-          console.log('[Upload] Recording metrics...');
-          const { error: metricsError } = await supabase.from('metrics').insert({
-            metric_name: 'upload_duration',
-            value: totalDuration,
-            unit: 'ms',
-            textbook_id: textbookId,
-            metadata: {
-              file_size: file.size,
-              total_pages: quickMetadata.totalPages
-            }
-          });
-          
-          if (metricsError) {
-            console.log('[Upload] Metrics failed (non-critical):', metricsError.message);
-          } else {
-            console.log('[Upload] Metrics recorded ✓');
+      if (textbookId && pdfUrl) {
+        // Background 1: Extract full metadata from PDF
+        (async () => {
+          try {
+            console.log('[Background] Extracting PDF metadata...');
+            const fullMetadata = await extractMetadataOnly(file);
+            console.log('[Background] Metadata extracted:', fullMetadata);
+            
+            // Update textbook record with real page count
+            await supabase
+              .from('textbooks')
+              .update({ 
+                total_pages: fullMetadata.totalPages,
+                metadata: {
+                  ...metadata,
+                  author: fullMetadata.author,
+                  pdf_subject: fullMetadata.subject,
+                }
+              })
+              .eq('id', textbookId);
+            
+            console.log('[Background] Metadata updated in DB ✓');
+            quickMetadata = fullMetadata;
+            
+            // Now trigger all background jobs
+            triggerBackgroundProcessing(textbookId, pdfUrl, metadata, fullMetadata);
+          } catch (err) {
+            console.error('[Background] Metadata extraction failed:', err);
+            // Still trigger background jobs with basic metadata
+            triggerBackgroundProcessing(textbookId, pdfUrl, metadata, quickMetadata);
           }
-        } catch (err) {
-          console.log('[Upload] Metrics exception (non-critical):', err);
-        }
+        })();
         
-        // Optional 2: Trigger background jobs (GUARANTEED to run)
-        try {
-          console.log('[Upload] Triggering background jobs...');
-          triggerBackgroundProcessing(textbookId, pdfUrl, metadata, quickMetadata);
-          console.log('[Upload] Background jobs triggered ✓');
-        } catch (err) {
-          console.error('[Upload] Background trigger exception:', err);
-        }
-      } else {
-        console.warn('[Upload] Skipping optional tasks - upload may have failed');
+        // Background 2: Record metrics (fire and forget)
+        (async () => {
+          try {
+            const totalDuration = performance.now() - uploadStartTime;
+            await supabase.from('metrics').insert({
+              metric_name: 'upload_duration',
+              value: totalDuration,
+              unit: 'ms',
+              textbook_id: textbookId,
+              metadata: { file_size: file.size }
+            });
+          } catch {
+            // Silent failure
+          }
+        })();
       }
       
-      console.log('[Upload] ===== ALL PATHS COMPLETE =====');
+      console.log('[Upload] ===== BACKGROUND PROCESSING TRIGGERED =====');
     }
   };
 
