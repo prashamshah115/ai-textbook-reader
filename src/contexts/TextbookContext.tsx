@@ -574,7 +574,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     setTimeout(() => clearInterval(pollInterval), 300000);
   };
 
-  // 🚀 DAY 2: NON-BLOCKING UPLOAD - Show PDF immediately, extract in background
+  // 🔥 LOCAL-FIRST: Show PDF instantly from browser memory, upload in background
   const uploadTextbook = async (
     file: File,
     metadata: UploadMetadata,
@@ -583,85 +583,37 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     if (!user) throw new Error('User not authenticated');
 
     const textbookId = crypto.randomUUID();
-    let pdfUrl: string | null = null;
-    let quickMetadata: any = { title: file.name.replace('.pdf', ''), totalPages: 1 };
     const uploadStartTime = performance.now();
 
     try {
-      console.log('[Upload] ===== INSTANT UPLOAD START =====');
+      console.log('[Upload] ===== LOCAL-FIRST INSTANT UPLOAD =====');
       console.log('[Upload] Textbook ID:', textbookId);
-      
-      // 🚀 STEP 1: Upload PDF to storage FIRST (this is most reliable)
-      onProgress?.(10, 'uploading');
-      toast.loading('Uploading PDF...', { id: 'upload' });
-      
-      const filePath = `${user.id}/${textbookId}.pdf`;
-      console.log('[Upload] Step 1: Uploading PDF...', { 
-        filePath, 
-        fileSize: file.size,
-        fileSizeMB: (file.size / 1024 / 1024).toFixed(2) + 'MB',
-        fileName: file.name,
-        fileType: file.type,
+      console.log('[Upload] File:', { 
+        size: file.size,
+        sizeMB: (file.size / 1024 / 1024).toFixed(2) + 'MB',
+        name: file.name,
+        type: file.type,
       });
       
-      // Add 30-second timeout to detect hangs
-      const uploadPromise = supabase.storage
-        .from('textbook-pdfs')
-        .upload(filePath, file, {
-          cacheControl: '31536000',
-          upsert: false,
-        });
-
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Upload timeout after 30 seconds')), 30000)
-      );
-
-      let uploadError: any = null;
-      try {
-        const result: any = await Promise.race([uploadPromise, timeoutPromise]);
-        uploadError = result?.error;
-        
-        if (uploadError) {
-          console.error('[Upload] Storage error:', {
-            message: uploadError.message,
-            statusCode: uploadError.statusCode,
-            details: uploadError,
-          });
-        } else {
-          console.log('[Upload] Storage upload SUCCESS!');
-        }
-      } catch (err: any) {
-        uploadError = err;
-        console.error('[Upload] Upload failed or timed out:', err.message);
-      }
-
-      if (uploadError) {
-        console.error('[Upload] Upload failed:', uploadError);
-        toast.error(`Upload failed: ${uploadError.message || 'Unknown error'}`);
-        throw uploadError;
-      }
+      // 🚀 STEP 1: Create local blob URL - INSTANT!
+      onProgress?.(20, 'preparing');
+      toast.loading('Preparing PDF...', { id: 'upload' });
       
-      console.log('[Upload] Step 1: PDF uploaded ✓');
-
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('textbook-pdfs')
-        .getPublicUrl(filePath);
-
-      pdfUrl = urlData.publicUrl;
+      const localPdfUrl = URL.createObjectURL(file);
+      console.log('[Upload] Step 1: Local blob URL created ✓');
       
-      // 🚀 STEP 2: Create minimal DB record (just enough to show PDF)
+      // 🚀 STEP 2: Create minimal DB record with LOCAL URL
       onProgress?.(40, 'creating');
       toast.loading('Setting up viewer...', { id: 'upload' });
       
-      console.log('[Upload] Step 2: Creating DB record...');
+      console.log('[Upload] Step 2: Creating DB record with LOCAL URL...');
       const { error: textbookError } = await supabase
         .from('textbooks')
         .insert({
           id: textbookId,
           user_id: user.id,
           title: metadata.title || file.name.replace('.pdf', ''),
-          pdf_url: pdfUrl,
+          pdf_url: localPdfUrl, // ← LOCAL BLOB URL (instant!)
           total_pages: 1, // Will be updated in background
           processing_status: 'pending',
           processing_progress: 0,
@@ -682,9 +634,9 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       
       console.log('[Upload] Step 2: DB record created ✓');
       
-      // 🚀 STEP 3: Show PDF viewer IMMEDIATELY
+      // 🚀 STEP 3: Show PDF viewer IMMEDIATELY (from local file)
       onProgress?.(70, 'loading');
-      console.log('[Upload] Step 3: Loading PDF viewer NOW...');
+      console.log('[Upload] Step 3: Loading PDF viewer NOW (from local file)...');
       
       await loadTextbooks();
       await loadTextbook(textbookId);
@@ -692,7 +644,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       const totalDuration = performance.now() - uploadStartTime;
       console.log(`[Upload] ✅ PDF READY in ${totalDuration.toFixed(0)}ms - USER CAN READ!`);
       
-      toast.success('📚 PDF ready! Background processing started.', { id: 'upload' });
+      toast.success('📚 PDF ready! Uploading to cloud...', { id: 'upload', duration: 2000 });
       onProgress?.(100, 'done');
       
       console.log('[Upload] ===== INSTANT UPLOAD COMPLETE =====');
@@ -706,18 +658,71 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       
     } finally {
       // ============================================================
-      // BACKGROUND PATH - Metadata + Web Context ONLY
-      // Text extraction happens on-demand when user views pages
+      // BACKGROUND PATH - Cloud Upload + Metadata + Web Context
       // ============================================================
-      console.log('[Upload] ===== BACKGROUND: METADATA + WEB CONTEXT =====');
+      console.log('[Upload] ===== BACKGROUND: CLOUD UPLOAD + METADATA =====');
       
-      if (textbookId && pdfUrl) {
-        // Background 1: Extract full metadata (NEEDED FOR CHAT)
+      if (textbookId && localPdfUrl) {
+        const filePath = `${user.id}/${textbookId}.pdf`;
+        
+        // Background 1: Upload to cloud storage (non-blocking)
+        (async () => {
+          try {
+            console.log('[CloudUpload] Starting upload to Supabase Storage...');
+            toast.loading('Uploading to cloud...', { id: 'cloud-upload' });
+            
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('textbook-pdfs')
+              .upload(filePath, file, {
+                cacheControl: '31536000',
+                upsert: false,
+              });
+            
+            if (uploadError) {
+              console.error('[CloudUpload] Failed:', uploadError);
+              toast.error('Cloud upload failed. PDF is still viewable locally.', { id: 'cloud-upload' });
+              return;
+            }
+            
+            // Get cloud URL
+            const { data: urlData } = supabase.storage
+              .from('textbook-pdfs')
+              .getPublicUrl(filePath);
+            
+            const cloudUrl = urlData.publicUrl;
+            
+            // Update DB with cloud URL
+            await supabase
+              .from('textbooks')
+              .update({ pdf_url: cloudUrl })
+              .eq('id', textbookId);
+            
+            console.log('[CloudUpload] ✅ Uploaded to cloud, URL updated');
+            toast.success('✅ Uploaded to cloud!', { id: 'cloud-upload' });
+            
+            // Now that we have cloud URL, enqueue priority jobs
+            console.log('[CloudUpload] Starting priority queue processing...');
+            await enqueuePriorityJobs(textbookId, cloudUrl, quickMetadata.totalPages || 5);
+            
+            // Cleanup local blob URL to free memory
+            URL.revokeObjectURL(localPdfUrl);
+            
+            // Reload textbook with cloud URL
+            await loadTextbook(textbookId);
+          } catch (err) {
+            console.error('[CloudUpload] Error:', err);
+            toast.error('Cloud upload failed. PDF is still viewable locally.', { id: 'cloud-upload' });
+          }
+        })();
+        // Background 2: Extract full metadata (NEEDED FOR CHAT)
         (async () => {
           try {
             console.log('[Background] Extracting PDF metadata for chat...');
             const fullMetadata = await extractMetadataOnly(file);
             console.log('[Background] Metadata:', fullMetadata);
+            
+            // Store for later use
+            quickMetadata = fullMetadata;
             
             // Update textbook record with real page count
             await supabase
@@ -739,7 +744,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
           }
         })();
         
-        // Background 2: Fetch web context (NEEDED FOR CHAT)
+        // Background 3: Fetch web context (NEEDED FOR CHAT)
         (async () => {
           try {
             console.log('[Background] Fetching web context for instant chat...');
@@ -764,67 +769,7 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
           }
         })();
 
-        // 🔥 PHASE 2: Priority Queue - Enqueue first 5 pages immediately
-        (async () => {
-          try {
-            const totalPages = quickMetadata.totalPages || 5;
-            console.log(`[PriorityQueue] Enqueuing first 5 pages (high priority)...`);
-            
-            // PRIORITY 1: First 5 pages (IMMEDIATE - for instant UX)
-            for (let page = 1; page <= Math.min(5, totalPages); page++) {
-              fetch('/api/enqueue-job', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  jobType: 'extract_and_ai',
-                  jobKey: `full:${textbookId}:${page}`,
-                  payload: { textbookId, pageNumber: page, pdfUrl },
-                  priority: 1, // HIGH
-                }),
-              }).catch(err => console.error(`[PriorityQueue] Failed to enqueue page ${page}:`, err));
-            }
-
-            // PRIORITY 2: Next 10 pages (5-15) - Background prefetch (delayed start)
-            setTimeout(async () => {
-              for (let page = 6; page <= Math.min(15, totalPages); page++) {
-                await fetch('/api/enqueue-job', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    jobType: 'extract_and_ai',
-                    jobKey: `full:${textbookId}:${page}`,
-                    payload: { textbookId, pageNumber: page, pdfUrl },
-                    priority: 2, // MEDIUM
-                  }),
-                }).catch(err => console.error(`[PriorityQueue] Failed to enqueue page ${page}:`, err));
-                
-                await new Promise(resolve => setTimeout(resolve, 500)); // Throttle
-              }
-            }, 10000); // Start after 10s
-
-            // PRIORITY 3: Rest of textbook (pages 16+) - Low priority background (delayed start)
-            setTimeout(async () => {
-              for (let page = 16; page <= totalPages; page++) {
-                await fetch('/api/enqueue-job', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    jobType: 'extract_and_ai',
-                    jobKey: `full:${textbookId}:${page}`,
-                    payload: { textbookId, pageNumber: page, pdfUrl },
-                    priority: 3, // LOW
-                  }),
-                }).catch(err => console.error(`[PriorityQueue] Failed to enqueue page ${page}:`, err));
-                
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Heavy throttle
-              }
-            }, 60000); // Start after 1 minute
-
-            console.log('[PriorityQueue] ✅ All jobs enqueued');
-          } catch (err) {
-            console.error('[PriorityQueue] Enqueue failed:', err);
-          }
-        })();
+        // Priority queue jobs will be enqueued after cloud upload completes
         
         // ⚠️ COMMENTED OUT - Text extraction moved to on-demand per-page
         // This was causing the app to freeze for 45-75 seconds
@@ -862,6 +807,67 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       }
       
       console.log('[Upload] ===== BACKGROUND COMPLETE: CHAT READY =====');
+    }
+  };
+
+  // 🔥 Helper: Enqueue priority jobs after cloud upload
+  const enqueuePriorityJobs = async (textbookId: string, pdfUrl: string, totalPages: number) => {
+    try {
+      console.log(`[PriorityQueue] Enqueuing jobs for ${totalPages} pages...`);
+      
+      // PRIORITY 1: First 5 pages (IMMEDIATE - for instant UX)
+      for (let page = 1; page <= Math.min(5, totalPages); page++) {
+        fetch('/api/enqueue-job', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobType: 'extract_and_ai',
+            jobKey: `full:${textbookId}:${page}`,
+            payload: { textbookId, pageNumber: page, pdfUrl },
+            priority: 1, // HIGH
+          }),
+        }).catch(err => console.error(`[PriorityQueue] Failed to enqueue page ${page}:`, err));
+      }
+
+      // PRIORITY 2: Next 10 pages (6-15) - Background prefetch (delayed start)
+      setTimeout(async () => {
+        for (let page = 6; page <= Math.min(15, totalPages); page++) {
+          await fetch('/api/enqueue-job', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jobType: 'extract_and_ai',
+              jobKey: `full:${textbookId}:${page}`,
+              payload: { textbookId, pageNumber: page, pdfUrl },
+              priority: 2, // MEDIUM
+            }),
+          }).catch(err => console.error(`[PriorityQueue] Failed to enqueue page ${page}:`, err));
+          
+          await new Promise(resolve => setTimeout(resolve, 500)); // Throttle
+        }
+      }, 10000); // Start after 10s
+
+      // PRIORITY 3: Rest of textbook (pages 16+) - Low priority background (delayed start)
+      setTimeout(async () => {
+        for (let page = 16; page <= totalPages; page++) {
+          await fetch('/api/enqueue-job', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jobType: 'extract_and_ai',
+              jobKey: `full:${textbookId}:${page}`,
+              payload: { textbookId, pageNumber: page, pdfUrl },
+              priority: 3, // LOW
+            }),
+          }).catch(err => console.error(`[PriorityQueue] Failed to enqueue page ${page}:`, err));
+          
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Heavy throttle
+        }
+      }, 60000); // Start after 1 minute
+
+      console.log('[PriorityQueue] ✅ All jobs enqueued');
+    } catch (err) {
+      console.error('[PriorityQueue] Enqueue failed:', err);
     }
   };
 
