@@ -108,7 +108,7 @@ export function PDFReader({ onTextSelect }: PDFReaderProps) {
     }
   };
 
-  // 🔥 DAY 5: Track when page finishes rendering + extract text client-side
+  // 🔥 FIXED: Track page render WITHOUT blocking text extraction
   const handlePageLoadSuccess = async (page: any) => {
     if (pageTimerRef.current) {
       const duration = pageTimerRef.current.getDuration();
@@ -122,34 +122,10 @@ export function PDFReader({ onTextSelect }: PDFReaderProps) {
       console.log(`[PDFReader] Page ${currentPage} rendered in ${duration.toFixed(0)}ms`);
     }
 
-    // 🔥 CLIENT-SIDE TEXT EXTRACTION
-    if (currentTextbook && currentPageData === null) {
-      try {
-        console.log(`[PDFReader] Extracting text from page ${currentPage}...`);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item: any) => item.str).join(' ').trim();
-        
-        if (pageText) {
-          console.log(`[PDFReader] Extracted ${pageText.length} chars`);
-          
-          // Save to database
-          await supabase.from('pages').insert({
-            textbook_id: currentTextbook.id,
-            page_number: currentPage,
-            raw_text: pageText,
-            processed: false,
-          }).then(({ error }) => {
-            if (error && error.code !== '23505') {
-              console.error('[PDFReader] Save failed:', error);
-            } else {
-              console.log(`[PDFReader] ✓ Page ${currentPage} text saved to DB`);
-            }
-          });
-        }
-      } catch (error) {
-        console.error(`[PDFReader] Text extraction failed:`, error);
-      }
-    }
+    // ✅ CLIENT-SIDE TEXT EXTRACTION DISABLED
+    // Text extraction now happens via background queue worker
+    // This prevents UI freezing and allows instant page navigation
+    console.log(`[PDFReader] ✓ Page ${currentPage} ready (text extraction handled by queue)`);
   };
 
   const handleMouseUp = () => {
