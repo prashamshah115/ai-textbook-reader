@@ -225,8 +225,7 @@ async function handleGenerateAI(job) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      pageId: page.id,
-      pageText: page.raw_text,
+      textbookId: textbookId,
       pageNumber: pageNumber,
     }),
   });

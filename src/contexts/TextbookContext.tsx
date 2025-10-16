@@ -311,7 +311,8 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     if (!currentTextbook) return;
 
     try {
-      setLoading(true);
+      // ✅ DON'T set loading state - prevents UI from freezing on page navigation
+      // setLoading(true); // DISABLED - causes freeze
 
       // Get page data with automatic retry for 406 errors
       const { data: pageData, error: pageError } = await loadPageDataWithRetry();
@@ -374,8 +375,8 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
         toast.error('Failed to load page. Please try again.');
       }
     } finally {
-      // FIX #3: Always clear loading state
-      setLoading(false);
+      // ✅ No loading state to clear (disabled to prevent freezing)
+      // setLoading(false); // DISABLED
     }
   };
 
@@ -1232,10 +1233,14 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Load page data when page changes
+  // Load page data when page changes (non-blocking)
   useEffect(() => {
     if (currentTextbook) {
-      loadPageData();
+      // Run loadPageData without blocking the UI
+      loadPageData().catch(err => {
+        console.error('[PageData] Background load failed:', err);
+        // Don't block UI on error - just log it
+      });
     }
   }, [currentPage, currentTextbook]);
 
