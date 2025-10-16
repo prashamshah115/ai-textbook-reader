@@ -595,17 +595,48 @@ export function TextbookProvider({ children }: { children: ReactNode }) {
       toast.loading('Uploading PDF...', { id: 'upload' });
       
       const filePath = `${user.id}/${textbookId}.pdf`;
-      console.log('[Upload] Step 1: Uploading PDF...', { filePath, fileSize: file.size });
+      console.log('[Upload] Step 1: Uploading PDF...', { 
+        filePath, 
+        fileSize: file.size,
+        fileSizeMB: (file.size / 1024 / 1024).toFixed(2) + 'MB',
+        fileName: file.name,
+        fileType: file.type,
+      });
       
-      const { error: uploadError } = await supabase.storage
+      // Add 30-second timeout to detect hangs
+      const uploadPromise = supabase.storage
         .from('textbook-pdfs')
         .upload(filePath, file, {
           cacheControl: '31536000',
           upsert: false,
         });
 
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Upload timeout after 30 seconds')), 30000)
+      );
+
+      let uploadError: any = null;
+      try {
+        const result: any = await Promise.race([uploadPromise, timeoutPromise]);
+        uploadError = result?.error;
+        
+        if (uploadError) {
+          console.error('[Upload] Storage error:', {
+            message: uploadError.message,
+            statusCode: uploadError.statusCode,
+            details: uploadError,
+          });
+        } else {
+          console.log('[Upload] Storage upload SUCCESS!');
+        }
+      } catch (err: any) {
+        uploadError = err;
+        console.error('[Upload] Upload failed or timed out:', err.message);
+      }
+
       if (uploadError) {
         console.error('[Upload] Upload failed:', uploadError);
+        toast.error(`Upload failed: ${uploadError.message || 'Unknown error'}`);
         throw uploadError;
       }
       

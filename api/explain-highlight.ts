@@ -35,7 +35,7 @@ export default async function handler(req: Request) {
 
   try {
     const { text, context } = await req.json();
-    const { docId, pageNum, fileName } = context || {};
+    const { docId, pageNum } = context || {};
 
     if (!text || text.length < 5) {
       return Response.json(
@@ -106,7 +106,7 @@ export default async function handler(req: Request) {
       max_tokens: 200,
     });
 
-    const explanation = completion.choices[0]?.message?.content || 'No explanation generated.';
+    const explanation: string = completion.choices[0]?.message?.content || 'No explanation generated.';
 
     // Cache result (with size limit)
     if (explanationCache.size >= MAX_CACHE_SIZE) {
