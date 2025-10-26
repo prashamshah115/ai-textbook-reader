@@ -30,6 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // TRY CONTENT_ITEMS FIRST (week bundle extracted text), THEN PAGES
     let pageText: string | null = null;
+    let pageData: any = null; // For storing AI content later
     
     // Try content_items first (prioritize extracted_text from course materials)
     const { data: contentItems } = await supabase
@@ -51,44 +52,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .substring(0, 10000); // Limit to 10k chars
     }
     
-    // Fallback: Get from pages table
+    // Always get page record (for storage), fallback for text extraction
+    const { data: fetchedPageData } = await supabase
+      .from('pages')
+      .select('*')
+      .eq('textbook_id', textbookId)
+      .eq('page_number', pageNumber)
+      .maybeSingle();
+    
+    pageData = fetchedPageData;
+    
+    // Use page text if we didn't get it from content_items
+    if (!pageText && pageData?.raw_text) {
+      pageText = pageData.raw_text;
+    }
+    
+    // If still no text, try on-demand extraction
     if (!pageText) {
-      let { data: pageData } = await supabase
-        .from('pages')
-        .select('*')
-        .eq('textbook_id', textbookId)
-        .eq('page_number', pageNumber)
-        .single();
+      console.log('[GeneratePageContent] Page text not found, extracting on-demand...');
+      
+      try {
+        const extractResponse = await fetch(`${req.headers.origin || 'http://localhost:5173'}/api/extract-single-page`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ textbookId, pageNumber }),
+        });
 
-      pageText = pageData?.raw_text || null;
-
-      // If page text not found, extract it on-demand
-      if (!pageText) {
-        console.log('[GeneratePageContent] Page text not found, extracting on-demand...');
-        
-        try {
-          const extractResponse = await fetch(`${req.headers.origin || 'http://localhost:5173'}/api/extract-single-page`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ textbookId, pageNumber }),
-          });
-
-          if (!extractResponse.ok) {
-            throw new Error('On-demand extraction failed');
-          }
-
-          const { text } = await extractResponse.json();
-          pageText = text;
-
-          console.log('[GeneratePageContent] On-demand extraction successful');
-        } catch (extractError) {
-          console.error('[GeneratePageContent] On-demand extraction failed:', extractError);
-          return res.status(503).json({ 
-            error: 'Text not available. Check that content has been extracted.',
-            code: 'TEXT_NOT_EXTRACTED',
-            details: 'Try running the extraction script or wait for background processing.'
-          });
+        if (!extractResponse.ok) {
+          throw new Error('On-demand extraction failed');
         }
+
+        const { text } = await extractResponse.json();
+        pageText = text;
+
+        console.log('[GeneratePageContent] On-demand extraction successful');
+      } catch (extractError) {
+        console.error('[GeneratePageContent] On-demand extraction failed:', extractError);
+        return res.status(503).json({ 
+          error: 'Text not available. Check that content has been extracted.',
+          code: 'TEXT_NOT_EXTRACTED',
+          details: 'Try running the extraction script or wait for background processing.'
+        });
       }
     }
 
@@ -227,42 +231,48 @@ Return ONLY a JSON array like:
       }];
     }
 
-    // Check if ai_processed_content already exists for this page
-    const { data: existingContent } = await supabase
-      .from('ai_processed_content')
-      .select('id')
-      .eq('page_id', pageData.id)
-      .single();
-
-    if (existingContent) {
-      // Update existing record
-      const { error: updateError } = await supabase
+    // Store AI content (only if we have a page record)
+    if (pageData && pageData.id) {
+      const { data: existingContent } = await supabase
         .from('ai_processed_content')
-        .update({
-          applications,
-          practice_questions: questions,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existingContent.id);
+        .select('id')
+        .eq('page_id', pageData.id)
+        .maybeSingle();
 
-      if (updateError) {
-        console.error('[GeneratePageContent] Error updating content:', updateError);
-        throw updateError;
+      if (existingContent) {
+        // Update existing record
+        const { error: updateError } = await supabase
+          .from('ai_processed_content')
+          .update({
+            applications,
+            practice_questions: questions,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingContent.id);
+
+        if (updateError) {
+          console.error('[GeneratePageContent] Error updating content:', updateError);
+        } else {
+          console.log('[GeneratePageContent] Updated existing AI content');
+        }
+      } else {
+        // Insert new record
+        const { error: insertError } = await supabase
+          .from('ai_processed_content')
+          .insert({
+            page_id: pageData.id,
+            applications,
+            practice_questions: questions,
+          });
+
+        if (insertError) {
+          console.error('[GeneratePageContent] Error inserting content:', insertError);
+        } else {
+          console.log('[GeneratePageContent] Inserted new AI content');
+        }
       }
     } else {
-      // Insert new record
-      const { error: insertError } = await supabase
-        .from('ai_processed_content')
-        .insert({
-          page_id: pageData.id,
-          applications,
-          practice_questions: questions,
-        });
-
-      if (insertError) {
-        console.error('[GeneratePageContent] Error inserting content:', insertError);
-        throw insertError;
-      }
+      console.log('[GeneratePageContent] No page record - skipping AI content storage (content from week bundle)');
     }
 
     console.log(`[GeneratePageContent] Successfully generated ${applications.length} applications and ${questions.length} questions`);

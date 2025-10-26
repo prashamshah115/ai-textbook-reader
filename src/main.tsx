@@ -12,6 +12,7 @@ import { TextbookProvider } from './contexts/TextbookContext';
 import { NotesProvider } from './contexts/NotesContext';
 import { ChatProvider } from './contexts/ChatContext';
 import { WeekBundleProvider } from './contexts/WeekBundleContext';
+import { SprintProvider } from './contexts/SprintContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 createRoot(document.getElementById('root')!).render(
@@ -23,14 +24,16 @@ createRoot(document.getElementById('root')!).render(
             <NotesProvider>
               <ChatProvider>
                 <WeekBundleProvider>
-                  <Routes>
-                    {/* Main textbook reader route */}
-                    <Route path="/" element={<App />} />
-                    
-                    {/* Week bundle route - new feature */}
-                    <Route path="/week/:bundleId" element={<WeekBundleView />} />
-                  </Routes>
-                  <Toaster position="top-right" />
+                  <SprintProvider>
+                    <Routes>
+                      {/* Main textbook reader route */}
+                      <Route path="/" element={<App />} />
+                      
+                      {/* Week bundle route - new feature */}
+                      <Route path="/week/:bundleId" element={<WeekBundleView />} />
+                    </Routes>
+                    <Toaster position="top-right" />
+                  </SprintProvider>
                 </WeekBundleProvider>
               </ChatProvider>
             </NotesProvider>

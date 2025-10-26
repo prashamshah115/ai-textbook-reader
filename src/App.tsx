@@ -10,7 +10,7 @@ import { MinimalAIPane } from './components/MinimalAIPane';
 import { ExplainTooltip } from './components/ExplainTooltip';
 import { UploadProgressBanner } from './components/UploadProgressBanner';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './components/ui/resizable';
-import { SprintProvider, useSprint } from './contexts/SprintContext';
+import { useSprint } from './contexts/SprintContext';
 import { useTextbook } from './contexts/TextbookContext';
 import { useNotes } from './contexts/NotesContext';
 import { useAuth } from './contexts/AuthContext';
@@ -131,9 +131,5 @@ function AppContent() {
 }
 
 export default function App() {
-  return (
-    <SprintProvider>
-      <AppContent />
-    </SprintProvider>
-  );
+  return <AppContent />;
 }
