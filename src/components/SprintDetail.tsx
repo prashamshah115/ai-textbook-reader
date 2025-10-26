@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSprint } from '../contexts/SprintContext';
 import { 
   ArrowLeft, BookOpen, FileText, ExternalLink, CheckCircle2, 
@@ -11,6 +12,7 @@ import { Badge } from './ui/badge';
 
 export function SprintDetail() {
   const { currentSprint, contentItems, setViewMode, setActiveDayIndex } = useSprint();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
 
   if (!currentSprint) return null;
@@ -57,7 +59,7 @@ export function SprintDetail() {
             </div>
           </div>
           <Button 
-            onClick={() => setViewMode('reader')}
+            onClick={() => navigate(`/week/${currentSprint.id}`)}
             className="bg-blue-500 hover:bg-blue-600 text-white"
           >
             <BookOpen className="w-4 h-4 mr-2" />

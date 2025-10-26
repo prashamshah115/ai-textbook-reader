@@ -3,9 +3,10 @@ import { useParams } from 'react-router-dom';
 import { useWeekBundle } from '../../contexts/WeekBundleContext';
 import ContentCatalog from './ContentCatalog';
 import ContentViewer from './ContentViewer';
-import { MinimalAIPane } from '../MinimalAIPane';
+import { WeekAIPane } from './WeekAIPane';
 import { Alert, AlertDescription } from '../ui/alert';
-import { Loader2 } from 'lucide-react';
+import { Loader2, BookOpen, FileText, FileCode, GraduationCap } from 'lucide-react';
+import { Button } from '../ui/button';
 
 /**
  * Main view for Week Bundle
@@ -13,13 +14,30 @@ import { Loader2 } from 'lucide-react';
  */
 export default function WeekBundleView() {
   const { bundleId } = useParams<{ bundleId: string }>();
-  const { currentBundle, loading, error, loadBundle } = useWeekBundle();
+  const { currentBundle, contentItems, selectedContent, selectContent, loading, error, loadBundle } = useWeekBundle();
 
   useEffect(() => {
     if (bundleId) {
       loadBundle(bundleId);
     }
   }, [bundleId]);
+
+  // Auto-select first content item when bundle loads
+  useEffect(() => {
+    if (contentItems.length > 0 && !selectedContent) {
+      selectContent(contentItems[0]);
+    }
+  }, [contentItems, selectedContent]);
+
+  const getContentIcon = (type: string) => {
+    switch (type) {
+      case 'textbook': return <BookOpen className="w-4 h-4" />;
+      case 'slides': return <FileText className="w-4 h-4" />;
+      case 'homework': return <FileCode className="w-4 h-4" />;
+      case 'paper': return <GraduationCap className="w-4 h-4" />;
+      default: return <FileText className="w-4 h-4" />;
+    }
+  };
 
   if (loading) {
     return (
@@ -55,19 +73,32 @@ export default function WeekBundleView() {
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
+      <header className="bg-white border-b border-gray-200 px-6 py-3">
+        <div className="flex items-center justify-between mb-2">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-xl font-bold text-gray-900">
               {currentBundle.course_code} - Week {currentBundle.week_number}
             </h1>
-            <p className="text-sm text-gray-600 mt-1">
-              {currentBundle.week_topic} • {currentBundle.institution}
+            <p className="text-xs text-gray-600 mt-0.5">
+              {currentBundle.week_topic}
             </p>
           </div>
-          <div className="text-sm text-gray-500">
-            {currentBundle.course_name}
-          </div>
+        </div>
+
+        {/* Content Tabs */}
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {contentItems.map((item) => (
+            <Button
+              key={item.id}
+              variant={selectedContent?.id === item.id ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => selectContent(item)}
+              className="flex items-center gap-2 whitespace-nowrap shrink-0"
+            >
+              {getContentIcon(item.content_type)}
+              <span className="text-sm">{item.title}</span>
+            </Button>
+          ))}
         </div>
       </header>
 
@@ -85,7 +116,7 @@ export default function WeekBundleView() {
 
         {/* Right: AI Learning Pane */}
         <aside className="w-96 bg-white border-l border-gray-200 overflow-y-auto">
-          <MinimalAIPane />
+          <WeekAIPane />
         </aside>
       </div>
     </div>
