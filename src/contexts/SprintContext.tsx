@@ -81,35 +81,6 @@ export function SprintProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Auto-load sprints on mount
-  useEffect(() => {
-    const initializeSprints = async () => {
-      if (!user) return;
-      
-      console.log('[SprintContext] Loading sprints for user:', user.id);
-      
-      // Load all sprints first
-      await loadAllSprints();
-      
-      // Auto-load the most recent sprint
-      const { data: bundles } = await supabase
-        .from('week_bundles')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      
-      if (bundles && bundles.length > 0) {
-        console.log('[SprintContext] Auto-loading sprint:', bundles[0].course_code, 'Week', bundles[0].week_number);
-        await loadSprint(bundles[0].id);
-      } else {
-        console.log('[SprintContext] No sprints found');
-      }
-    };
-    
-    initializeSprints();
-  }, [user?.id]);
-
   // Load all sprints for dashboard
   const loadAllSprints = async () => {
     if (!user) {
@@ -305,6 +276,47 @@ export function SprintProvider({ children }: { children: ReactNode }) {
       console.error('Error tracking access:', err);
     }
   };
+
+  // Auto-load sprints when user logs in
+  useEffect(() => {
+    const initializeSprints = async () => {
+      if (!user) {
+        console.log('[SprintContext] No user, skipping sprint load');
+        return;
+      }
+      
+      console.log('[SprintContext] User logged in, loading sprints for:', user.id);
+      
+      try {
+        // Load all sprints first for dashboard
+        await loadAllSprints();
+        
+        // Auto-load the most recent sprint
+        const { data: bundles, error: bundlesError } = await supabase
+          .from('week_bundles')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        
+        if (bundlesError) {
+          console.error('[SprintContext] Error fetching bundles:', bundlesError);
+          return;
+        }
+        
+        if (bundles && bundles.length > 0) {
+          console.log('[SprintContext] Found sprint:', bundles[0].course_code, 'Week', bundles[0].week_number);
+          await loadSprint(bundles[0].id);
+        } else {
+          console.log('[SprintContext] No sprints found for this user');
+        }
+      } catch (err) {
+        console.error('[SprintContext] Error initializing sprints:', err);
+      }
+    };
+    
+    initializeSprints();
+  }, [user?.id]); // Only re-run when user ID changes
 
   const value: SprintContextType = {
     currentSprint,

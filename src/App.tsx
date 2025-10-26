@@ -10,14 +10,14 @@ import { MinimalAIPane } from './components/MinimalAIPane';
 import { ExplainTooltip } from './components/ExplainTooltip';
 import { UploadProgressBanner } from './components/UploadProgressBanner';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './components/ui/resizable';
-import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { SprintProvider, useSprint } from './contexts/SprintContext';
 import { useTextbook } from './contexts/TextbookContext';
 import { useNotes } from './contexts/NotesContext';
+import { useAuth } from './contexts/AuthContext';
 
 function AppContent() {
   const { viewMode } = useSprint();
-  const [showLanding, setShowLanding] = useState(true);
+  const { user } = useAuth();
   const [tooltipData, setTooltipData] = useState<{
     text: string;
     position: { x: number; y: number };
@@ -68,9 +68,9 @@ function AppContent() {
     setTooltipData(null);
   };
 
-  // Show landing page
-  if (showLanding) {
-    return <LandingPage onEnterApp={() => setShowLanding(false)} />;
+  // Show landing page only if user is NOT authenticated
+  if (!user) {
+    return <LandingPage onEnterApp={() => {}} />;
   }
 
   // Sprint-based views
@@ -132,10 +132,8 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ProtectedRoute>
-      <SprintProvider>
-        <AppContent />
-      </SprintProvider>
-    </ProtectedRoute>
+    <SprintProvider>
+      <AppContent />
+    </SprintProvider>
   );
 }
