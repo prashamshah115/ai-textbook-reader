@@ -81,6 +81,35 @@ export function SprintProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Auto-load sprints on mount
+  useEffect(() => {
+    const initializeSprints = async () => {
+      if (!user) return;
+      
+      console.log('[SprintContext] Loading sprints for user:', user.id);
+      
+      // Load all sprints first
+      await loadAllSprints();
+      
+      // Auto-load the most recent sprint
+      const { data: bundles } = await supabase
+        .from('week_bundles')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      
+      if (bundles && bundles.length > 0) {
+        console.log('[SprintContext] Auto-loading sprint:', bundles[0].course_code, 'Week', bundles[0].week_number);
+        await loadSprint(bundles[0].id);
+      } else {
+        console.log('[SprintContext] No sprints found');
+      }
+    };
+    
+    initializeSprints();
+  }, [user?.id]);
+
   // Load all sprints for dashboard
   const loadAllSprints = async () => {
     if (!user) {
