@@ -28,48 +28,73 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log(`[GeneratePageContent] Processing page ${pageNumber} for textbook ${textbookId}`);
 
-    // Get the page data
-    let { data: pageData } = await supabase
-      .from('pages')
-      .select('*')
-      .eq('textbook_id', textbookId)
-      .eq('page_number', pageNumber)
-      .single();
-
-    let pageText = pageData?.raw_text;
-
-    // If page text not found, extract it on-demand
-    if (!pageText) {
-      console.log('[GeneratePageContent] Page text not found, extracting on-demand...');
+    // TRY CONTENT_ITEMS FIRST (week bundle extracted text), THEN PAGES
+    let pageText: string | null = null;
+    
+    // Try content_items first (prioritize extracted_text from course materials)
+    const { data: contentItems } = await supabase
+      .from('content_items')
+      .select('extracted_text, title, content_type')
+      .eq('extraction_status', 'completed')
+      .not('extracted_text', 'is', null)
+      .limit(3);
+    
+    if (contentItems && contentItems.length > 0) {
+      console.log(`[GeneratePageContent] Found ${contentItems.length} extracted content items`);
+      // Combine extracted texts (prioritize textbooks)
+      const textbookItems = contentItems.filter(item => item.content_type === 'textbook');
+      const relevantItems = textbookItems.length > 0 ? textbookItems : contentItems;
       
-      try {
-        const extractResponse = await fetch(`${req.headers.origin || 'http://localhost:5173'}/api/extract-single-page`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ textbookId, pageNumber }),
-        });
+      pageText = relevantItems
+        .map(item => `=== ${item.title} ===\n${item.extracted_text}`)
+        .join('\n\n')
+        .substring(0, 10000); // Limit to 10k chars
+    }
+    
+    // Fallback: Get from pages table
+    if (!pageText) {
+      let { data: pageData } = await supabase
+        .from('pages')
+        .select('*')
+        .eq('textbook_id', textbookId)
+        .eq('page_number', pageNumber)
+        .single();
 
-        if (!extractResponse.ok) {
-          throw new Error('On-demand extraction failed');
+      pageText = pageData?.raw_text || null;
+
+      // If page text not found, extract it on-demand
+      if (!pageText) {
+        console.log('[GeneratePageContent] Page text not found, extracting on-demand...');
+        
+        try {
+          const extractResponse = await fetch(`${req.headers.origin || 'http://localhost:5173'}/api/extract-single-page`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ textbookId, pageNumber }),
+          });
+
+          if (!extractResponse.ok) {
+            throw new Error('On-demand extraction failed');
+          }
+
+          const { text } = await extractResponse.json();
+          pageText = text;
+
+          console.log('[GeneratePageContent] On-demand extraction successful');
+        } catch (extractError) {
+          console.error('[GeneratePageContent] On-demand extraction failed:', extractError);
+          return res.status(503).json({ 
+            error: 'Text not available. Check that content has been extracted.',
+            code: 'TEXT_NOT_EXTRACTED',
+            details: 'Try running the extraction script or wait for background processing.'
+          });
         }
-
-        const { text } = await extractResponse.json();
-        pageText = text;
-
-        console.log('[GeneratePageContent] On-demand extraction successful');
-      } catch (extractError) {
-        console.error('[GeneratePageContent] On-demand extraction failed:', extractError);
-        return res.status(503).json({ 
-          error: 'Page text not available. Background extraction may still be in progress.',
-          code: 'TEXT_NOT_EXTRACTED',
-          details: 'Try again in a few moments, or wait for background processing to complete.'
-        });
       }
     }
 
     if (!pageText || pageText.trim().length < 50) {
       return res.status(400).json({ 
-        error: 'Page text is too short or empty',
+        error: 'Text is too short or empty',
         code: 'INSUFFICIENT_TEXT'
       });
     }

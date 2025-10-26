@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.67.0",
     "@radix-ui/react-accordion": "^1.2.3",
     "@radix-ui/react-alert-dialog": "^1.1.6",
     "@radix-ui/react-aspect-ratio": "^1.1.2",
@@ -42,6 +43,7 @@
     "input-otp": "^1.4.2",
     "lucide-react": "^0.487.0",
     "next-themes": "^0.4.6",
+    "node-fetch": "^2.7.0",
     "openai": "^4.24.1",
     "pdf-parse": "^2.2.2",
     "pdfjs-dist": "^5.4.296",
@@ -52,6 +54,7 @@
     "react-hook-form": "^7.55.0",
     "react-pdf": "^7.7.0",
     "react-resizable-panels": "^2.1.7",
+    "react-router-dom": "^7.9.4",
     "recharts": "^2.15.2",
     "sonner": "^2.0.3",
     "tailwind-merge": "^2.2.0",
@@ -59,6 +62,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@types/node-fetch": "^2.6.13",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vercel/node": "^5.3.26",

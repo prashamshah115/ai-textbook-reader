@@ -142,8 +142,34 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         context.chapterNumber = chapter.chapter_number;
       }
 
-      // ⚡ TIER 2: Extracted Page Text (2-6s) - IF AVAILABLE
-      if (currentPageData?.raw_text) {
+      // ⚡ TIER 2: Extracted Text - TRY CONTENT_ITEMS FIRST (week bundles), THEN PAGES
+      let extractedText: string | null = null;
+      
+      // Try content_items first (week bundle system)
+      const { data: contentItems } = await supabase
+        .from('content_items')
+        .select('extracted_text, extraction_status')
+        .eq('extraction_status', 'completed')
+        .not('extracted_text', 'is', null)
+        .limit(5);
+      
+      if (contentItems && contentItems.length > 0) {
+        // Use extracted text from content items (prioritize textbooks, then slides)
+        extractedText = contentItems
+          .map(item => item.extracted_text)
+          .filter(Boolean)
+          .join('\n\n---\n\n')
+          .substring(0, 10000); // Limit total context
+        
+        if (extractedText) {
+          context.tier = Math.max(context.tier, 2);
+          context.pageText = extractedText;
+          context.note = 'Using extracted text from course materials';
+        }
+      }
+      
+      // Fallback to pages table if no content_items found
+      if (!extractedText && currentPageData?.raw_text) {
         context.tier = Math.max(context.tier, 2);
         context.pageText = currentPageData.raw_text;
 
@@ -167,9 +193,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (nextPage.data?.raw_text) {
           context.nextPageText = nextPage.data.raw_text.substring(0, 500);
         }
-      } else {
-        // No page text yet
-        context.note = 'Page text is being extracted on-demand. I can answer general questions using web context and metadata.';
+      } 
+      
+      if (!extractedText && !currentPageData?.raw_text) {
+        // No text available
+        context.note = 'Text is being extracted. I can answer general questions using web context and metadata.';
       }
 
       // ⚡ TIER 3: AI-Generated Content (if available)

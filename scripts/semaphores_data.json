@@ -1,0 +1,71 @@
+{
+  "courseCode": "CSE 120",
+  "institution": "UCSD",
+  "weekNumber": 3,
+  "weekTopic": "Semaphores and Monitors",
+  "aggregatedContent": {
+    "textbooks": [
+      {
+        "title": "CH. 30",
+        "url": "http://pages.cs.wisc.edu/~remzi/OSTEP/threads-cv.pdf",
+        "authors": [
+          "Unknown Author"
+        ],
+        "pages": [
+          1,
+          50
+        ],
+        "chapter": 30,
+        "confidence": 0.7
+      },
+      {
+        "title": "CH. 31",
+        "url": "http://pages.cs.wisc.edu/~remzi/OSTEP/threads-sema.pdf",
+        "authors": [
+          "Unknown Author"
+        ],
+        "pages": [
+          1,
+          50
+        ],
+        "chapter": 31,
+        "confidence": 0.7
+      }
+    ],
+    "slides": [
+      {
+        "title": "Semaphores and Monitors",
+        "url": "https://cseweb.ucsd.edu/classes/fa25/cse120-a/lectures/sema.pdf",
+        "pages": 40,
+        "professor": "CSE 120 Staff",
+        "confidence": 0.7
+      }
+    ],
+    "homework": [
+      {
+        "assignment": "HW 2",
+        "url": "https://cseweb.ucsd.edu/classes/fa25/cse120-a/hw/hw2.html",
+        "problems": ["2.1", "2.2", "2.3"],
+        "confidence": 0.85
+      },
+      {
+        "assignment": "PR 1",
+        "url": "https://cseweb.ucsd.edu/classes/fa25/cse120-a/projects/project1.html",
+        "problems": [],
+        "confidence": 0.85
+      }
+    ],
+    "papers": [
+      {
+        "title": "Languages and Condition Variables",
+        "authors": ["Geoffrey M. Voelker"],
+        "url": "https://www.sysnet.ucsd.edu/~voelker/class/cse120/condvars.html",
+        "year": 2024,
+        "venue": "CSE 120 Course Materials",
+        "confidence": 0.90
+      }
+    ],
+    "parallelRunId": "scrape-no-parallel-1761513662",
+    "aggregatedAt": "2025-10-26T21:21:02Z"
+  }
+}

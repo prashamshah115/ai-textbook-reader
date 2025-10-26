@@ -1,0 +1,81 @@
+{
+  "courseCode": "CSE 120",
+  "institution": "UCSD",
+  "weekNumber": 3,
+  "weekTopic": "Semaphores and Monitors",
+  "aggregatedContent": {
+    "textbooks": [
+      {
+        "title": "CH. 30",
+        "url": "http://pages.cs.wisc.edu/~remzi/OSTEP/threads-cv.pdf",
+        "authors": [
+          "Unknown Author"
+        ],
+        "pages": [
+          1,
+          50
+        ],
+        "chapter": 30,
+        "confidence": 0.7
+      },
+      {
+        "title": "CH. 31",
+        "url": "http://pages.cs.wisc.edu/~remzi/OSTEP/threads-sema.pdf",
+        "authors": [
+          "Unknown Author"
+        ],
+        "pages": [
+          1,
+          50
+        ],
+        "chapter": 31,
+        "confidence": 0.7
+      }
+    ],
+    "slides": [
+      {
+        "title": "Semaphores and Monitors",
+        "url": "https://cseweb.ucsd.edu/classes/fa25/cse120-a/lectures/sema.pdf",
+        "pages": 40,
+        "professor": "CSE 120 Staff",
+        "confidence": 0.7
+      }
+    ],
+    "homework": [],
+    "papers": [
+      {
+        "title": "The Linux Completely Fair Scheduler",
+        "authors": [
+          "Ingo Molnar"
+        ],
+        "url": "https://www.kernel.org/doc/Documentation/scheduler/sched-design-CFS.txt",
+        "year": 2023,
+        "venue": "Linux Kernel Documentation",
+        "confidence": 0.88
+      },
+      {
+        "title": "Lottery Scheduling: Flexible Proportional-Share Resource Management",
+        "authors": [
+          "Carl A. Waldspurger",
+          "William E. Weihl"
+        ],
+        "url": "https://www.usenix.org/legacy/publications/library/proceedings/osdi/full_papers/waldspurger.pdf",
+        "year": 1994,
+        "venue": "OSDI",
+        "confidence": 0.85
+      },
+      {
+        "title": "BFS vs CFS - Scheduler Comparison",
+        "authors": [
+          "Con Kolivas"
+        ],
+        "url": "https://ck-hack.blogspot.com/2013/10/bfs-vs-cfs-scheduler-comparison.html",
+        "year": 2023,
+        "venue": "Blog Post",
+        "confidence": 0.75
+      }
+    ],
+    "parallelRunId": "scrape-1761514306",
+    "aggregatedAt": "2025-10-26T21:31:46Z"
+  }
+}

@@ -1,6 +1,7 @@
-import { Search, User, LogOut, Upload, Trash2, MoreVertical, RefreshCw } from 'lucide-react';
+import { Search, User, LogOut, Upload, Trash2, MoreVertical, RefreshCw, BookOpen } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectSeparator } from './ui/select';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useTextbook } from '../contexts/TextbookContext';
 import { UploadDialog } from './UploadDialog';
@@ -241,9 +242,19 @@ export function MinimalHeader() {
         </DropdownMenu>
       )}
 
+      {/* Week Bundle Link */}
+      <Link 
+        to="/week/demo-cse120-week3"
+        className="flex items-center gap-2 px-3 py-1.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-md transition-colors ml-auto"
+        title="View Week 3 Bundle (Demo)"
+      >
+        <BookOpen className="w-3.5 h-3.5" />
+        <span>CSE 120 Week 3</span>
+      </Link>
+
       {/* Refresh Button */}
       <button 
-        className="p-1.5 hover:bg-muted rounded-full transition-colors ml-auto"
+        className="p-1.5 hover:bg-muted rounded-full transition-colors"
         onClick={() => window.location.reload()}
         title="Refresh app if it becomes unresponsive"
       >

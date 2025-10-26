@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head><title>Get User ID</title></head>
+<body>
+<h1>Get Your User ID</h1>
+<p>Open your browser console (F12) and paste this:</p>
+<pre style="background: #f0f0f0; padding: 10px;">
+// If your app uses Supabase client directly:
+const { data: { user } } = await supabase.auth.getUser()
+console.log('User ID:', user.id)
+</pre>
+<p><strong>OR</strong> check localStorage:</p>
+<pre style="background: #f0f0f0; padding: 10px;">
+const authData = JSON.parse(localStorage.getItem('supabase.auth.token'))
+console.log('User ID:', authData?.user?.id)
+</pre>
+</body>
+</html>

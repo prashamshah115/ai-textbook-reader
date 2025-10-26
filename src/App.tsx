@@ -1,4 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
+import { LandingPage } from './components/LandingPage';
+import { SprintDashboard } from './components/SprintDashboard';
+import { SprintDetail } from './components/SprintDetail';
+import { EnhancedPDFReader } from './components/EnhancedPDFReader';
 import { MinimalHeader } from './components/MinimalHeader';
 import { NotesPanel } from './components/NotesPanel';
 import { PDFReader } from './components/PDFReader';
@@ -7,10 +11,13 @@ import { ExplainTooltip } from './components/ExplainTooltip';
 import { UploadProgressBanner } from './components/UploadProgressBanner';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './components/ui/resizable';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { SprintProvider, useSprint } from './contexts/SprintContext';
 import { useTextbook } from './contexts/TextbookContext';
 import { useNotes } from './contexts/NotesContext';
 
 function AppContent() {
+  const { viewMode } = useSprint();
+  const [showLanding, setShowLanding] = useState(true);
   const [tooltipData, setTooltipData] = useState<{
     text: string;
     position: { x: number; y: number };
@@ -61,6 +68,25 @@ function AppContent() {
     setTooltipData(null);
   };
 
+  // Show landing page
+  if (showLanding) {
+    return <LandingPage onEnterApp={() => setShowLanding(false)} />;
+  }
+
+  // Sprint-based views
+  if (viewMode === 'dashboard') {
+    return <SprintDashboard />;
+  }
+
+  if (viewMode === 'detail') {
+    return <SprintDetail />;
+  }
+
+  if (viewMode === 'reader') {
+    return <EnhancedPDFReader />;
+  }
+
+  // Fallback to original 3-column layout (legacy textbook reader)
   return (
     <div className="h-screen flex flex-col bg-background">
       <MinimalHeader />
@@ -107,7 +133,9 @@ function AppContent() {
 export default function App() {
   return (
     <ProtectedRoute>
-      <AppContent />
+      <SprintProvider>
+        <AppContent />
+      </SprintProvider>
     </ProtectedRoute>
   );
 }

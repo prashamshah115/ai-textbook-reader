@@ -63,9 +63,38 @@ export default async function handler(req: Request) {
       });
     }
 
-    // Fetch minimal context (non-blocking)
+    // Fetch context from extracted text (for Sprint content)
     let additionalContext = '';
+    
+    // Try to fetch from content_items (Sprint system)
     if (docId) {
+      try {
+        const { data: contentItem } = await supabase
+          .from('content_items')
+          .select('title, extracted_text, content_type')
+          .eq('id', docId)
+          .maybeSingle();
+
+        if (contentItem && contentItem.extracted_text) {
+          // Find surrounding context (±500 chars around selected text)
+          const textIndex = contentItem.extracted_text.indexOf(truncatedText);
+          if (textIndex >= 0) {
+            const start = Math.max(0, textIndex - 500);
+            const end = Math.min(contentItem.extracted_text.length, textIndex + truncatedText.length + 500);
+            const surroundingText = contentItem.extracted_text.slice(start, end);
+            
+            additionalContext = `Source: ${contentItem.title} (${contentItem.content_type})\n\nSurrounding context:\n${surroundingText}`;
+          } else {
+            additionalContext = `Source: ${contentItem.title} (${contentItem.content_type})`;
+          }
+        }
+      } catch (err) {
+        console.warn('[Explain] Failed to fetch from content_items:', err);
+      }
+    }
+    
+    // Fallback to textbooks table (legacy system)
+    if (!additionalContext && docId) {
       try {
         const { data: textbook } = await supabase
           .from('textbooks')
@@ -83,8 +112,7 @@ export default async function handler(req: Request) {
           }
         }
       } catch (err) {
-        console.warn('[Explain] Failed to fetch context:', err);
-        // Continue without context
+        console.warn('[Explain] Failed to fetch from textbooks:', err);
       }
     }
 

@@ -1,7 +1,8 @@
 // 🔥 FIX BUG #3: On-demand single page extraction with retry logic
 import { createClient } from '@supabase/supabase-js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import pdfParse from 'pdf-parse';
+// @ts-ignore - pdf-parse has inconsistent module exports
+const pdfParse = require('pdf-parse');
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,

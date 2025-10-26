@@ -1,0 +1,80 @@
+{
+  "courseCode": "CSE 120",
+  "institution": "UCSD",
+  "weekNumber": 3,
+  "weekTopic": "Process Scheduling",
+  "aggregatedContent": {
+    "textbooks": [
+      {
+        "title": "Silberschatz Chapter 5 - CPU Scheduling",
+        "url": "https://example.com/silberschatz-ch5.pdf",
+        "authors": [
+          "Abraham Silberschatz",
+          "Peter Baer Galvin",
+          "Greg Gagne"
+        ],
+        "pages": [185, 220],
+        "chapter": 5,
+        "confidence": 0.85
+      },
+      {
+        "title": "Tanenbaum Chapter 2 - Processes and Threads",
+        "url": "https://example.com/tanenbaum-ch2.pdf",
+        "authors": [
+          "Andrew S. Tanenbaum",
+          "Herbert Bos"
+        ],
+        "pages": [73, 110],
+        "chapter": 2,
+        "confidence": 0.82
+      }
+    ],
+    "slides": [
+      {
+        "title": "Week 3: Process Scheduling Lecture Slides",
+        "url": "https://cseweb.ucsd.edu/classes/fa25/cse120-a/lectures/week3-scheduling.pdf",
+        "pages": 45,
+        "professor": "CSE 120 Staff",
+        "confidence": 0.90
+      }
+    ],
+    "homework": [
+      {
+        "assignment": "Problem Set 3 - CPU Scheduling",
+        "url": "https://cseweb.ucsd.edu/classes/fa25/cse120-a/homework/ps3.pdf",
+        "problems": ["3.1", "3.2", "3.3", "3.4"],
+        "confidence": 0.88
+      }
+    ],
+    "papers": [
+      {
+        "title": "The Linux Completely Fair Scheduler",
+        "authors": ["Ingo Molnar"],
+        "url": "https://www.kernel.org/doc/Documentation/scheduler/sched-design-CFS.txt",
+        "year": 2023,
+        "venue": "Linux Kernel Documentation",
+        "confidence": 0.88
+      },
+      {
+        "title": "Lottery Scheduling: Flexible Proportional-Share Resource Management",
+        "authors": ["Carl A. Waldspurger", "William E. Weihl"],
+        "url": "https://www.usenix.org/legacy/publications/library/proceedings/osdi/full_papers/waldspurger.pdf",
+        "year": 1994,
+        "venue": "OSDI",
+        "confidence": 0.85
+      },
+      {
+        "title": "BFS vs CFS - Scheduler Comparison",
+        "authors": ["Con Kolivas"],
+        "url": "https://ck-hack.blogspot.com/2013/10/bfs-vs-cfs-scheduler-comparison.html",
+        "year": 2023,
+        "venue": "Blog Post",
+        "confidence": 0.75
+      }
+    ],
+    "parallelRunId": "scrape-1729900000",
+    "aggregatedAt": "2025-10-26T12:00:00Z"
+  }
+}
+
+
