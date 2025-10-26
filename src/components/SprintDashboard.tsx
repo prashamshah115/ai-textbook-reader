@@ -1,4 +1,3 @@
-import React, { useEffect } from 'react';
 import { useSprint } from '../contexts/SprintContext';
 import { Calendar, Target, BookOpen, TrendingUp, ArrowRight, CheckCircle2, Circle } from 'lucide-react';
 import { Button } from './ui/button';
@@ -6,7 +5,7 @@ import { Progress } from './ui/progress';
 import { Card } from './ui/card';
 
 export function SprintDashboard() {
-  const { currentSprint, setViewMode, knowledgeGraph, loading, error } = useSprint();
+  const { currentSprint, setViewMode, loading, error } = useSprint();
 
   if (loading) {
     return (
@@ -37,9 +36,12 @@ export function SprintDashboard() {
   const completedDays = currentSprint.dailySessions.filter(s => s.completed).length;
   const totalDays = currentSprint.dailySessions.length;
   
-  const avgMastery = Math.round(
-    knowledgeGraph.reduce((sum, node) => sum + node.mastery, 0) / knowledgeGraph.length
-  );
+  const avgMastery = currentSprint.knowledgeGraph.length > 0
+    ? Math.round(
+        currentSprint.knowledgeGraph.reduce((sum, node) => sum + node.mastery, 0) / 
+        currentSprint.knowledgeGraph.length
+      )
+    : 0;
 
   return (
     <div className="min-h-screen bg-white">
@@ -181,7 +183,7 @@ export function SprintDashboard() {
               Knowledge Map
             </h3>
             <div className="space-y-3">
-              {knowledgeGraph.map((node, idx) => (
+              {currentSprint.knowledgeGraph.map((node, idx) => (
                 <div key={idx}>
                   <div className="flex items-center justify-between mb-1 text-sm">
                     <span className="text-gray-700">{node.concept}</span>
