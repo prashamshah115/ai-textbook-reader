@@ -26,26 +26,44 @@ import type {
 // ============================================
 
 export async function uploadPaper(file: File, title?: string): Promise<{ paper_id: string }> {
+  console.log('1️⃣ [uploadPaper] Starting...', { fileName: file.name, size: file.size });
+  
+  console.log('2️⃣ [uploadPaper] Getting auth session...');
   const session = await supabase.auth.getSession();
-  if (!session.data.session) throw new Error('Not authenticated');
+  console.log('3️⃣ [uploadPaper] Session retrieved:', { hasSession: !!session.data.session, userId: session.data.session?.user.id });
+  
+  if (!session.data.session) {
+    console.error('❌ [uploadPaper] No session found!');
+    throw new Error('Not authenticated');
+  }
 
   const userId = session.data.session.user.id;
   const fileId = crypto.randomUUID();
   const storagePath = `${userId}/${fileId}.pdf`;
+  console.log('4️⃣ [uploadPaper] Will upload to:', storagePath);
 
   // Upload to Supabase Storage
-  const { error: uploadError } = await supabase.storage
+  console.log('5️⃣ [uploadPaper] Uploading to Supabase Storage...');
+  const { error: uploadError, data: uploadData } = await supabase.storage
     .from('papers')
     .upload(storagePath, file);
 
-  if (uploadError) throw uploadError;
+  if (uploadError) {
+    console.error('❌ [uploadPaper] Storage upload failed:', uploadError);
+    throw uploadError;
+  }
+  
+  console.log('6️⃣ [uploadPaper] Storage upload SUCCESS:', uploadData);
 
   // Get public URL
+  console.log('7️⃣ [uploadPaper] Getting public URL...');
   const { data: urlData } = supabase.storage
     .from('papers')
     .getPublicUrl(storagePath);
+  console.log('8️⃣ [uploadPaper] Public URL:', urlData.publicUrl);
 
   // Create paper record
+  console.log('9️⃣ [uploadPaper] Creating database record...');
   const { data, error } = await supabase
     .from('papers')
     .insert({
@@ -59,15 +77,27 @@ export async function uploadPaper(file: File, title?: string): Promise<{ paper_i
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error('❌ [uploadPaper] Database insert failed:', error);
+    throw error;
+  }
+  
+  console.log('🔟 [uploadPaper] Database record created:', data.id);
 
   // Mark as completed - no server processing needed
   // Text will be extracted on-demand when viewing
-  await supabase
+  console.log('1️⃣1️⃣ [uploadPaper] Marking as completed...');
+  const { error: updateError } = await supabase
     .from('papers')
     .update({ status: 'completed' })
     .eq('id', data.id);
 
+  if (updateError) {
+    console.error('❌ [uploadPaper] Update to completed failed:', updateError);
+    throw updateError;
+  }
+
+  console.log('✅ [uploadPaper] COMPLETE! Paper ID:', data.id);
   return { paper_id: data.id };
 }
 
