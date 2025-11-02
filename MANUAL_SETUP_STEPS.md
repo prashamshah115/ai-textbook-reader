@@ -285,3 +285,4 @@ FROM content_items
 GROUP BY extraction_status;
 ```
 
+

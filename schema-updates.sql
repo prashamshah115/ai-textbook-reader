@@ -30,3 +30,4 @@ SELECT id, title, extraction_status,
 FROM content_items 
 LIMIT 5;
 
+

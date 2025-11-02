@@ -1,8 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { LandingPage } from './components/LandingPage';
-import { SprintDashboard } from './components/SprintDashboard';
-import { SprintDetail } from './components/SprintDetail';
-import { EnhancedPDFReader } from './components/EnhancedPDFReader';
 import { MinimalHeader } from './components/MinimalHeader';
 import { NotesPanel } from './components/NotesPanel';
 import { PDFReader } from './components/PDFReader';
@@ -10,13 +7,11 @@ import { MinimalAIPane } from './components/MinimalAIPane';
 import { ExplainTooltip } from './components/ExplainTooltip';
 import { UploadProgressBanner } from './components/UploadProgressBanner';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './components/ui/resizable';
-import { useSprint } from './contexts/SprintContext';
 import { useTextbook } from './contexts/TextbookContext';
 import { useNotes } from './contexts/NotesContext';
 import { useAuth } from './contexts/AuthContext';
 
 function AppContent() {
-  const { viewMode } = useSprint();
   const { user } = useAuth();
   const [tooltipData, setTooltipData] = useState<{
     text: string;
@@ -73,20 +68,7 @@ function AppContent() {
     return <LandingPage onEnterApp={() => {}} />;
   }
 
-  // Sprint-based views
-  if (viewMode === 'dashboard') {
-    return <SprintDashboard />;
-  }
-
-  if (viewMode === 'detail') {
-    return <SprintDetail />;
-  }
-
-  if (viewMode === 'reader') {
-    return <EnhancedPDFReader />;
-  }
-
-  // Fallback to original 3-column layout (legacy textbook reader)
+  // Main PDF viewer - 3-column layout
   return (
     <div className="h-screen flex flex-col bg-background">
       <MinimalHeader />

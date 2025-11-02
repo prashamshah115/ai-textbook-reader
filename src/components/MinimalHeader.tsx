@@ -1,4 +1,4 @@
-import { Search, User, LogOut, Upload, Trash2, MoreVertical, RefreshCw, BookOpen } from 'lucide-react';
+import { Search, User, LogOut, Upload, Trash2, MoreVertical, RefreshCw, BookOpen, FileText } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectSeparator } from './ui/select';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -250,6 +250,16 @@ export function MinimalHeader() {
       >
         <BookOpen className="w-3.5 h-3.5" />
         <span>CSE 120 Week 3</span>
+      </Link>
+
+      {/* Research Papers Link */}
+      <Link 
+        to="/papers"
+        className="flex items-center gap-2 px-3 py-1.5 text-xs bg-primary/10 hover:bg-primary/20 text-primary rounded-md transition-colors"
+        title="Research Papers Library"
+      >
+        <FileText className="w-3.5 h-3.5" />
+        <span>Papers</span>
       </Link>
 
       {/* Refresh Button */}

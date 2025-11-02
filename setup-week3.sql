@@ -257,3 +257,4 @@ JOIN week_bundles wb ON wb.id = ci.week_bundle_id
 WHERE wb.course_code = 'CSE 120' AND wb.week_number = 3
 ORDER BY ci.display_order;
 
+

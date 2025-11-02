@@ -435,3 +435,4 @@ function calculateProgress(sessions: DailySession[]): number {
   return Math.round((completedCount / sessions.length) * 100);
 }
 
+
