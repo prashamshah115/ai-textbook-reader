@@ -1,7 +1,7 @@
 // Paper API Client
 // Based on Open Paper's proven API patterns, adapted for Supabase
 
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../supabase';
 import type {
   Paper,
   PaperHighlight,
@@ -20,15 +20,6 @@ import type {
   SearchPapersResponse,
   UploadProgress,
 } from './types';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ============================================
 // PAPERS
@@ -70,12 +61,12 @@ export async function uploadPaper(file: File, title?: string): Promise<{ paper_i
 
   if (error) throw error;
 
-  // Trigger processing (call to API endpoint)
-  fetch('/api/papers/process', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paper_id: data.id }),
-  }).catch(console.error);
+  // Mark as completed - no server processing needed
+  // Text will be extracted on-demand when viewing
+  await supabase
+    .from('papers')
+    .update({ status: 'completed' })
+    .eq('id', data.id);
 
   return { paper_id: data.id };
 }
