@@ -25,25 +25,15 @@ import type {
 // PAPERS
 // ============================================
 
-export async function uploadPaper(file: File, title?: string): Promise<{ paper_id: string }> {
-  console.log('1️⃣ [uploadPaper] Starting...', { fileName: file.name, size: file.size });
+export async function uploadPaper(file: File, userId: string, title?: string): Promise<{ paper_id: string }> {
+  console.log('1️⃣ [uploadPaper] Starting...', { fileName: file.name, size: file.size, userId });
   
-  console.log('2️⃣ [uploadPaper] Getting auth session...');
-  const session = await supabase.auth.getSession();
-  console.log('3️⃣ [uploadPaper] Session retrieved:', { hasSession: !!session.data.session, userId: session.data.session?.user.id });
-  
-  if (!session.data.session) {
-    console.error('❌ [uploadPaper] No session found!');
-    throw new Error('Not authenticated');
-  }
-
-  const userId = session.data.session.user.id;
   const fileId = crypto.randomUUID();
   const storagePath = `${userId}/${fileId}.pdf`;
-  console.log('4️⃣ [uploadPaper] Will upload to:', storagePath);
+  console.log('2️⃣ [uploadPaper] Will upload to:', storagePath);
 
   // Upload to Supabase Storage
-  console.log('5️⃣ [uploadPaper] Uploading to Supabase Storage...');
+  console.log('3️⃣ [uploadPaper] Uploading to Supabase Storage...');
   const { error: uploadError, data: uploadData } = await supabase.storage
     .from('papers')
     .upload(storagePath, file);
@@ -53,17 +43,17 @@ export async function uploadPaper(file: File, title?: string): Promise<{ paper_i
     throw uploadError;
   }
   
-  console.log('6️⃣ [uploadPaper] Storage upload SUCCESS:', uploadData);
+  console.log('4️⃣ [uploadPaper] Storage upload SUCCESS:', uploadData);
 
   // Get public URL
-  console.log('7️⃣ [uploadPaper] Getting public URL...');
+  console.log('5️⃣ [uploadPaper] Getting public URL...');
   const { data: urlData } = supabase.storage
     .from('papers')
     .getPublicUrl(storagePath);
-  console.log('8️⃣ [uploadPaper] Public URL:', urlData.publicUrl);
+  console.log('6️⃣ [uploadPaper] Public URL:', urlData.publicUrl);
 
   // Create paper record
-  console.log('9️⃣ [uploadPaper] Creating database record...');
+  console.log('7️⃣ [uploadPaper] Creating database record...');
   const { data, error } = await supabase
     .from('papers')
     .insert({
@@ -82,11 +72,11 @@ export async function uploadPaper(file: File, title?: string): Promise<{ paper_i
     throw error;
   }
   
-  console.log('🔟 [uploadPaper] Database record created:', data.id);
+  console.log('8️⃣ [uploadPaper] Database record created:', data.id);
 
   // Mark as completed - no server processing needed
   // Text will be extracted on-demand when viewing
-  console.log('1️⃣1️⃣ [uploadPaper] Marking as completed...');
+  console.log('9️⃣ [uploadPaper] Marking as completed...');
   const { error: updateError } = await supabase
     .from('papers')
     .update({ status: 'completed' })

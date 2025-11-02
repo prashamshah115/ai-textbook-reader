@@ -11,6 +11,7 @@ import type {
   HighlightWithAnnotations,
 } from '../lib/papers/types';
 import * as paperApi from '../lib/papers/api';
+import { useAuth } from './AuthContext';
 
 interface PaperContextType {
   // Current paper
@@ -64,6 +65,8 @@ interface PaperContextType {
 const PaperContext = createContext<PaperContextType | undefined>(undefined);
 
 export function PaperProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  
   // Paper state
   const [currentPaper, setCurrentPaper] = useState<Paper | null>(null);
   const [loading, setLoading] = useState(false);
@@ -137,10 +140,14 @@ export function PaperProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const uploadPaper = useCallback(async (file: File, title?: string): Promise<string> => {
+    if (!user) {
+      throw new Error('Not authenticated - please sign in');
+    }
+    
     setLoading(true);
     setError(null);
     try {
-      const { paper_id } = await paperApi.uploadPaper(file, title);
+      const { paper_id } = await paperApi.uploadPaper(file, user.id, title);
 
       // Subscribe to processing updates
       paperApi.subscribeToPaperUpdates(paper_id, (paper) => {
