@@ -6,6 +6,7 @@ import { Toaster } from 'sonner';
 import App from './App.tsx';
 import PaperLibrary from './components/papers/PaperLibrary.tsx';
 import PaperViewer from './components/papers/PaperViewer.tsx';
+import { LegacyPDFReader } from './components/LegacyPDFReader.tsx';
 import './index.css';
 import { queryClient } from './lib/queryClient';
 import { AuthProvider } from './contexts/AuthContext';
@@ -25,12 +26,15 @@ createRoot(document.getElementById('root')!).render(
               <ChatProvider>
                 <PaperProvider>
                   <Routes>
-                    {/* Main PDF reader route */}
+                    {/* Landing page / auth */}
                     <Route path="/" element={<App />} />
                     
-                    {/* Research papers routes */}
+                    {/* OpenPaper - Research papers routes */}
                     <Route path="/papers" element={<PaperLibrary />} />
                     <Route path="/papers/:paperId" element={<PaperViewer />} />
+                    
+                    {/* Legacy 3-column PDF reader (still accessible) */}
+                    <Route path="/reader" element={<LegacyPDFReader />} />
                   </Routes>
                   <Toaster position="top-right" />
                 </PaperProvider>
