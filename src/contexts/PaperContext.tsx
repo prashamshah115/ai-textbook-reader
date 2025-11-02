@@ -163,7 +163,7 @@ export function PaperProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   const updatePaperMetadata = useCallback(
     async (paperId: string, updates: Partial<Paper>) => {
