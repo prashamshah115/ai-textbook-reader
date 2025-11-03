@@ -1,7 +1,8 @@
 // Paper API Client
-// Based on Open Paper's proven API patterns, adapted for Supabase
+// Based on Open Paper's proven API patterns, adapted for Supabase + Vercel Blob
 
 import { supabase } from '../supabase';
+import { put } from '@vercel/blob';
 import type {
   Paper,
   PaperHighlight,
@@ -29,43 +30,28 @@ export async function uploadPaper(file: File, userId: string, title?: string): P
   console.log('1️⃣ [uploadPaper] Starting...', { fileName: file.name, size: file.size, userId });
   
   const fileId = crypto.randomUUID();
-  const storagePath = `${userId}/${fileId}.pdf`;
-  console.log('2️⃣ [uploadPaper] Will upload to:', storagePath);
+  const fileName = `${userId}/${fileId}.pdf`;
+  console.log('2️⃣ [uploadPaper] Will upload to Vercel Blob:', fileName);
 
-  // Upload to Supabase Storage
-  console.log('3️⃣ [uploadPaper] Uploading to Supabase Storage...');
-  const { error: uploadError, data: uploadData } = await supabase.storage
-    .from('papers')
-    .upload(storagePath, file, {
-      cacheControl: '3600',
-      upsert: false,
-      duplex: 'half'  // Fix for hanging uploads on small files
-    });
-
-  if (uploadError) {
-    console.error('❌ [uploadPaper] Storage upload failed:', uploadError);
-    throw uploadError;
-  }
+  // Upload to Vercel Blob (MUCH simpler than Supabase Storage!)
+  console.log('3️⃣ [uploadPaper] Uploading to Vercel Blob...');
+  const blob = await put(fileName, file, {
+    access: 'public',
+    addRandomSuffix: false,
+  });
   
-  console.log('4️⃣ [uploadPaper] Storage upload SUCCESS:', uploadData);
+  console.log('4️⃣ [uploadPaper] Vercel Blob upload SUCCESS:', blob.url);
 
-  // Get public URL
-  console.log('5️⃣ [uploadPaper] Getting public URL...');
-  const { data: urlData } = supabase.storage
-    .from('papers')
-    .getPublicUrl(storagePath);
-  console.log('6️⃣ [uploadPaper] Public URL:', urlData.publicUrl);
-
-  // Create paper record
-  console.log('7️⃣ [uploadPaper] Creating database record...');
+  // Create paper record in Supabase DB
+  console.log('5️⃣ [uploadPaper] Creating database record...');
   const { data, error } = await supabase
     .from('papers')
     .insert({
       user_id: userId,
       title: title || file.name.replace('.pdf', ''),
-      storage_path: storagePath,
-      pdf_url: urlData.publicUrl,
-      status: 'processing',
+      storage_path: fileName,
+      pdf_url: blob.url,  // Vercel Blob URL
+      status: 'completed',  // No processing needed
       size_kb: Math.round(file.size / 1024),
     })
     .select()
@@ -76,21 +62,6 @@ export async function uploadPaper(file: File, userId: string, title?: string): P
     throw error;
   }
   
-  console.log('8️⃣ [uploadPaper] Database record created:', data.id);
-
-  // Mark as completed - no server processing needed
-  // Text will be extracted on-demand when viewing
-  console.log('9️⃣ [uploadPaper] Marking as completed...');
-  const { error: updateError } = await supabase
-    .from('papers')
-    .update({ status: 'completed' })
-    .eq('id', data.id);
-
-  if (updateError) {
-    console.error('❌ [uploadPaper] Update to completed failed:', updateError);
-    throw updateError;
-  }
-
   console.log('✅ [uploadPaper] COMPLETE! Paper ID:', data.id);
   return { paper_id: data.id };
 }
