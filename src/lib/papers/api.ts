@@ -2,7 +2,6 @@
 // Based on Open Paper's proven API patterns, adapted for Supabase + Vercel Blob
 
 import { supabase } from '../supabase';
-import { put } from '@vercel/blob';
 import type {
   Paper,
   PaperHighlight,
@@ -33,14 +32,26 @@ export async function uploadPaper(file: File, userId: string, title?: string): P
   const fileName = `${userId}/${fileId}.pdf`;
   console.log('2️⃣ [uploadPaper] Will upload to Vercel Blob:', fileName);
 
-  // Upload to Vercel Blob (MUCH simpler than Supabase Storage!)
+  // Upload to Vercel Blob via API route
   console.log('3️⃣ [uploadPaper] Uploading to Vercel Blob...');
-  const blob = await put(fileName, file, {
-    access: 'public',
-    addRandomSuffix: false,
+  const uploadResponse = await fetch('/api/upload-blob', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/pdf',
+      'X-File-Name': fileName,
+      'X-User-Id': userId,
+    },
+    body: file,
   });
-  
-  console.log('4️⃣ [uploadPaper] Vercel Blob upload SUCCESS:', blob.url);
+
+  if (!uploadResponse.ok) {
+    const errorData = await uploadResponse.json();
+    console.error('❌ [uploadPaper] Blob upload failed:', errorData);
+    throw new Error(errorData.message || 'Blob upload failed');
+  }
+
+  const { url: blobUrl } = await uploadResponse.json();
+  console.log('4️⃣ [uploadPaper] Vercel Blob upload SUCCESS:', blobUrl);
 
   // Create paper record in Supabase DB
   console.log('5️⃣ [uploadPaper] Creating database record...');
@@ -50,7 +61,7 @@ export async function uploadPaper(file: File, userId: string, title?: string): P
       user_id: userId,
       title: title || file.name.replace('.pdf', ''),
       storage_path: fileName,
-      pdf_url: blob.url,  // Vercel Blob URL
+      pdf_url: blobUrl,  // Vercel Blob URL
       status: 'completed',  // No processing needed
       size_kb: Math.round(file.size / 1024),
     })
