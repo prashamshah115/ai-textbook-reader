@@ -2,6 +2,11 @@
 // Based on Open Paper's proven API patterns, adapted for Supabase + Vercel Blob
 
 import { supabase } from '../supabase';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Configure PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
 import type {
   Paper,
   PaperHighlight,
@@ -29,25 +34,33 @@ export async function uploadPaper(file: File, userId: string, title?: string): P
   console.log('1️⃣ [uploadPaper] Starting...', { fileName: file.name, size: file.size, userId });
   
   const fileId = crypto.randomUUID();
-  const fileName = `${userId}/${fileId}.pdf`;
+  const fileName = `papers/${userId}/${Date.now()}_${file.name}`;
   console.log('2️⃣ [uploadPaper] Will upload to Vercel Blob:', fileName);
 
-  // Upload to Vercel Blob via API route
+  // Upload to Vercel Blob using REST API directly
   console.log('3️⃣ [uploadPaper] Uploading to Vercel Blob...');
-  const uploadResponse = await fetch('/api/upload-blob', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/pdf',
-      'X-File-Name': fileName,
-      'X-User-Id': userId,
-    },
-    body: file,
-  });
+  const blobToken = import.meta.env.VITE_BLOB_READ_WRITE_TOKEN;
+  
+  if (!blobToken) {
+    throw new Error('VITE_BLOB_READ_WRITE_TOKEN not set in .env');
+  }
+
+  const uploadResponse = await fetch(
+    `https://blob.vercel-storage.com/${fileName}`,
+    {
+      method: 'PUT',
+      body: file,
+      headers: {
+        'x-content-type': 'application/pdf',
+        'authorization': `Bearer ${blobToken}`,
+      },
+    }
+  );
 
   if (!uploadResponse.ok) {
-    const errorData = await uploadResponse.json();
-    console.error('❌ [uploadPaper] Blob upload failed:', errorData);
-    throw new Error(errorData.message || 'Blob upload failed');
+    const errorText = await uploadResponse.text();
+    console.error('❌ [uploadPaper] Blob upload failed:', uploadResponse.status, errorText);
+    throw new Error(`Blob upload failed: ${uploadResponse.statusText}`);
   }
 
   const { url: blobUrl } = await uploadResponse.json();
@@ -61,8 +74,8 @@ export async function uploadPaper(file: File, userId: string, title?: string): P
       user_id: userId,
       title: title || file.name.replace('.pdf', ''),
       storage_path: fileName,
-      pdf_url: blobUrl,  // Vercel Blob URL
-      status: 'completed',  // No processing needed
+      pdf_url: blobUrl,
+      status: 'processing',
       size_kb: Math.round(file.size / 1024),
     })
     .select()
@@ -73,8 +86,63 @@ export async function uploadPaper(file: File, userId: string, title?: string): P
     throw error;
   }
   
-  console.log('✅ [uploadPaper] COMPLETE! Paper ID:', data.id);
-  return { paper_id: data.id };
+  console.log('6️⃣ [uploadPaper] Paper record created:', data.id);
+
+  // Extract text CLIENT-SIDE using PDF.js
+  try {
+    console.log('7️⃣ [uploadPaper] Extracting text from PDF...');
+    
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    
+    console.log(`📄 PDF has ${pdf.numPages} pages`);
+    
+    const pages = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const text = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      
+      pages.push({
+        page_number: i,
+        text: text,
+        word_count: text.split(/\s+/).filter(w => w.length > 0).length
+      });
+      
+      console.log(`✅ Extracted page ${i}/${pdf.numPages}`);
+    }
+    
+    // Update paper with extracted data
+    const { error: updateError } = await supabase
+      .from('papers')
+      .update({
+        status: 'completed',
+        total_pages: pdf.numPages,
+        metadata: { pages }
+      })
+      .eq('id', data.id);
+    
+    if (updateError) {
+      console.error('❌ Update failed:', updateError);
+      throw updateError;
+    }
+    
+    console.log('✅ [uploadPaper] COMPLETE! Paper ID:', data.id);
+    return { paper_id: data.id };
+    
+  } catch (extractError: any) {
+    console.error('❌ Text extraction failed:', extractError);
+    
+    // Mark as failed
+    await supabase
+      .from('papers')
+      .update({ status: 'failed' })
+      .eq('id', data.id);
+    
+    throw new Error(`Text extraction failed: ${extractError.message}`);
+  }
 }
 
 export async function getPaper(paperId: string): Promise<Paper> {
