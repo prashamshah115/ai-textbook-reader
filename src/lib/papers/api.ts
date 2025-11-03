@@ -36,7 +36,11 @@ export async function uploadPaper(file: File, userId: string, title?: string): P
   console.log('3️⃣ [uploadPaper] Uploading to Supabase Storage...');
   const { error: uploadError, data: uploadData } = await supabase.storage
     .from('papers')
-    .upload(storagePath, file);
+    .upload(storagePath, file, {
+      cacheControl: '3600',
+      upsert: false,
+      duplex: 'half'  // Fix for hanging uploads on small files
+    });
 
   if (uploadError) {
     console.error('❌ [uploadPaper] Storage upload failed:', uploadError);
