@@ -1,6 +1,5 @@
-// Paper API Client
-// Based on Open Paper's proven client-side architecture
-// Uses localStorage for all data (no Supabase DB) + Vercel Blob for files
+// Simplified Paper API - LocalStorage Only
+// Based on OpenPaper's client-side architecture
 
 import * as pdfjsLib from 'pdfjs-dist';
 import * as storage from './localStorage';
@@ -10,18 +9,16 @@ import type {
   PaperAnnotation,
   PaperConversation,
   PaperMessage,
-  PaperProject,
-  ProjectPaper,
   PaperNote,
   CreateHighlightRequest,
   CreateAnnotationRequest,
   CreateConversationRequest,
   SendMessageRequest,
-  CreateProjectRequest,
-  AddPaperToProjectRequest,
   SearchPapersResponse,
-  UploadProgress,
 } from './types';
+
+// Configure PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 // ============================================
 // PAPERS
@@ -63,7 +60,7 @@ export async function uploadPaper(file: File, userId: string, title?: string): P
   const { url: blobUrl } = await uploadResponse.json();
   console.log('4️⃣ [uploadPaper] Vercel Blob upload SUCCESS:', blobUrl);
 
-  // Create paper record in localStorage (OpenPaper style!)
+  // Create paper record in localStorage
   console.log('5️⃣ [uploadPaper] Creating paper record in localStorage...');
   
   const paperId = crypto.randomUUID();
@@ -159,10 +156,7 @@ export async function listPapers(limit = 50, offset = 0): Promise<Paper[]> {
   return sorted.slice(offset, offset + limit);
 }
 
-export async function updatePaper(
-  paperId: string,
-  updates: Partial<Paper>
-): Promise<Paper> {
+export async function updatePaper(paperId: string, updates: Partial<Paper>): Promise<Paper> {
   const updated = storage.updatePaper(paperId, updates);
   
   if (!updated) {
@@ -173,39 +167,22 @@ export async function updatePaper(
 }
 
 export async function deletePaper(paperId: string): Promise<void> {
-  // First, delete from storage
-  const { data: paper } = await supabase
-    .from('papers')
-    .select('storage_path')
-    .eq('id', paperId)
-    .single();
-
-  if (paper?.storage_path) {
-    await supabase.storage.from('papers').remove([paper.storage_path]);
-  }
-
-  // Then delete from database (cascades to related data)
-  const { error } = await supabase.from('papers').delete().eq('id', paperId);
-
-  if (error) throw error;
+  storage.deletePaper(paperId);
 }
 
-export async function searchPapers(
-  query: string,
-  limit = 20
-): Promise<SearchPapersResponse> {
-  // Use PostgreSQL full-text search
-  const { data, error } = await supabase.rpc('search_papers', {
-    search_query: query,
-    user_uuid: (await supabase.auth.getSession()).data.session?.user.id,
-  });
-
-  if (error) throw error;
-
+export async function searchPapers(query: string, limit = 20): Promise<SearchPapersResponse> {
+  const papers = storage.getAllPapers();
+  const searchLower = query.toLowerCase();
+  
+  const results = papers.filter(paper => 
+    paper.title.toLowerCase().includes(searchLower) ||
+    paper.authors?.toLowerCase().includes(searchLower) ||
+    paper.abstract?.toLowerCase().includes(searchLower)
+  );
+  
   return {
-    papers: data || [],
-    total: data?.length || 0,
-    query,
+    papers: results.slice(0, limit),
+    total_count: results.length,
   };
 }
 
@@ -213,400 +190,176 @@ export async function searchPapers(
 // HIGHLIGHTS
 // ============================================
 
-export async function createHighlight(
-  request: CreateHighlightRequest
-): Promise<PaperHighlight> {
-  const { data, error } = await supabase
-    .from('paper_highlights')
-    .insert({
-      paper_id: request.paper_id,
-      page_number: request.page_number,
-      text_content: request.text_content,
-      position: request.position,
-      color: request.color || 'yellow',
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+export async function createHighlight(request: CreateHighlightRequest): Promise<PaperHighlight> {
+  const highlight: PaperHighlight = {
+    id: crypto.randomUUID(),
+    ...request,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  
+  storage.saveHighlight(highlight);
+  return highlight;
 }
 
 export async function getHighlights(paperId: string): Promise<PaperHighlight[]> {
-  const { data, error } = await supabase
-    .from('paper_highlights')
-    .select('*')
-    .eq('paper_id', paperId)
-    .order('page_number', { ascending: true });
-
-  if (error) throw error;
-  return data;
+  return storage.getHighlightsForPaper(paperId);
 }
 
-export async function updateHighlight(
-  highlightId: string,
-  updates: Partial<PaperHighlight>
-): Promise<PaperHighlight> {
-  const { data, error } = await supabase
-    .from('paper_highlights')
-    .update(updates)
-    .eq('id', highlightId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+export async function updateHighlight(highlightId: string, updates: Partial<PaperHighlight>): Promise<PaperHighlight> {
+  const highlights = storage.getAllHighlights();
+  const highlight = highlights.find(h => h.id === highlightId);
+  
+  if (!highlight) throw new Error('Highlight not found');
+  
+  const updated = { ...highlight, ...updates, updated_at: new Date().toISOString() };
+  storage.saveHighlight(updated);
+  return updated;
 }
 
 export async function deleteHighlight(highlightId: string): Promise<void> {
-  const { error } = await supabase
-    .from('paper_highlights')
-    .delete()
-    .eq('id', highlightId);
-
-  if (error) throw error;
+  storage.deleteHighlight(highlightId);
 }
 
 // ============================================
 // ANNOTATIONS
 // ============================================
 
-export async function createAnnotation(
-  request: CreateAnnotationRequest
-): Promise<PaperAnnotation> {
-  const { data, error } = await supabase
-    .from('paper_annotations')
-    .insert({
-      highlight_id: request.highlight_id,
-      content: request.content,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+export async function createAnnotation(request: CreateAnnotationRequest): Promise<PaperAnnotation> {
+  const annotation: PaperAnnotation = {
+    id: crypto.randomUUID(),
+    user_id: '', // Will be set by context
+    ...request,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  
+  storage.saveAnnotation(annotation);
+  return annotation;
 }
 
 export async function getAnnotations(highlightId: string): Promise<PaperAnnotation[]> {
-  const { data, error } = await supabase
-    .from('paper_annotations')
-    .select('*')
-    .eq('highlight_id', highlightId)
-    .order('created_at', { ascending: true });
-
-  if (error) throw error;
-  return data;
+  return storage.getAnnotationsForHighlight(highlightId);
 }
 
-export async function updateAnnotation(
-  annotationId: string,
-  content: string
-): Promise<PaperAnnotation> {
-  const { data, error } = await supabase
-    .from('paper_annotations')
-    .update({ content })
-    .eq('id', annotationId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+export async function updateAnnotation(annotationId: string, content: string): Promise<PaperAnnotation> {
+  const annotations = storage.getAllAnnotations();
+  const annotation = annotations.find(a => a.id === annotationId);
+  
+  if (!annotation) throw new Error('Annotation not found');
+  
+  const updated = { ...annotation, content, updated_at: new Date().toISOString() };
+  storage.saveAnnotation(updated);
+  return updated;
 }
 
 export async function deleteAnnotation(annotationId: string): Promise<void> {
-  const { error } = await supabase
-    .from('paper_annotations')
-    .delete()
-    .eq('id', annotationId);
-
-  if (error) throw error;
+  storage.deleteAnnotation(annotationId);
 }
 
 // ============================================
-// CONVERSATIONS & MESSAGES
+// CONVERSATIONS & CHAT
 // ============================================
 
-export async function createConversation(
-  request: CreateConversationRequest
-): Promise<PaperConversation> {
-  const { data, error } = await supabase
-    .from('paper_conversations')
-    .insert({
-      paper_id: request.paper_id || null,
-      context_type: request.context_type || 'paper',
-      context_ids: request.context_ids || null,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+export async function createConversation(request: CreateConversationRequest): Promise<PaperConversation> {
+  const conversation: PaperConversation = {
+    id: crypto.randomUUID(),
+    user_id: '', // Will be set by context
+    ...request,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  
+  storage.saveConversation(conversation);
+  return conversation;
 }
 
-export async function getConversation(
-  conversationId: string
-): Promise<PaperConversation> {
-  const { data, error } = await supabase
-    .from('paper_conversations')
-    .select('*')
-    .eq('id', conversationId)
-    .single();
-
-  if (error) throw error;
-  return data;
+export async function getConversation(conversationId: string): Promise<PaperConversation> {
+  const conversations = storage.getAllConversations();
+  const conversation = conversations.find(c => c.id === conversationId);
+  
+  if (!conversation) throw new Error('Conversation not found');
+  
+  return conversation;
 }
 
 export async function listConversations(paperId?: string): Promise<PaperConversation[]> {
-  let query = supabase
-    .from('paper_conversations')
-    .select('*')
-    .order('updated_at', { ascending: false });
-
   if (paperId) {
-    query = query.eq('paper_id', paperId);
+    return storage.getConversationsForPaper(paperId);
   }
-
-  const { data, error } = await query;
-
-  if (error) throw error;
-  return data;
+  return storage.getAllConversations();
 }
 
 export async function getMessages(conversationId: string): Promise<PaperMessage[]> {
-  const { data, error } = await supabase
-    .from('paper_messages')
-    .select('*')
-    .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true });
-
-  if (error) throw error;
-  return data;
+  return storage.getMessagesForConversation(conversationId);
 }
 
-export async function sendMessage(
-  request: SendMessageRequest
-): Promise<ReadableStream> {
-  // This calls the streaming API endpoint
-  const session = await supabase.auth.getSession();
-  const token = session.data.session?.access_token;
-
-  const response = await fetch('/api/papers/chat', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(request),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Chat API error: ${response.statusText}`);
-  }
-
-  return response.body!;
-}
-
-// ============================================
-// PROJECTS
-// ============================================
-
-export async function createProject(
-  request: CreateProjectRequest
-): Promise<PaperProject> {
-  const { data, error } = await supabase
-    .from('paper_projects')
-    .insert({
-      name: request.name,
-      description: request.description || null,
-      color: request.color || '#3b82f6',
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-export async function listProjects(): Promise<PaperProject[]> {
-  const { data, error } = await supabase
-    .from('paper_projects')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return data;
-}
-
-export async function getProject(projectId: string): Promise<PaperProject> {
-  const { data, error } = await supabase
-    .from('paper_projects')
-    .select('*')
-    .eq('id', projectId)
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-export async function updateProject(
-  projectId: string,
-  updates: Partial<PaperProject>
-): Promise<PaperProject> {
-  const { data, error } = await supabase
-    .from('paper_projects')
-    .update(updates)
-    .eq('id', projectId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-export async function deleteProject(projectId: string): Promise<void> {
-  const { error } = await supabase
-    .from('paper_projects')
-    .delete()
-    .eq('id', projectId);
-
-  if (error) throw error;
-}
-
-export async function addPaperToProject(
-  request: AddPaperToProjectRequest
-): Promise<ProjectPaper> {
-  const { data, error } = await supabase
-    .from('project_papers')
-    .insert({
-      project_id: request.project_id,
-      paper_id: request.paper_id,
-      notes: request.notes || null,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-export async function removePaperFromProject(
-  projectId: string,
-  paperId: string
-): Promise<void> {
-  const { error } = await supabase
-    .from('project_papers')
-    .delete()
-    .eq('project_id', projectId)
-    .eq('paper_id', paperId);
-
-  if (error) throw error;
-}
-
-export async function getProjectPapers(projectId: string): Promise<Paper[]> {
-  const { data, error } = await supabase
-    .from('project_papers')
-    .select('paper_id, papers(*)')
-    .eq('project_id', projectId);
-
-  if (error) throw error;
-  return data.map((item: any) => item.papers);
+export async function sendMessage(request: SendMessageRequest): Promise<{ message_id: string }> {
+  const message: PaperMessage = {
+    id: crypto.randomUUID(),
+    ...request,
+    created_at: new Date().toISOString(),
+  };
+  
+  storage.saveMessage(message);
+  return { message_id: message.id };
 }
 
 // ============================================
 // NOTES
 // ============================================
 
-export async function createNote(
-  paperId: string,
-  content: string,
-  pageNumber?: number
-): Promise<PaperNote> {
-  const { data, error } = await supabase
-    .from('paper_notes')
-    .insert({
-      paper_id: paperId,
-      content,
-      page_number: pageNumber || null,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+export async function createNote(paperId: string, content: string, userId: string): Promise<PaperNote> {
+  const note: PaperNote = {
+    id: crypto.randomUUID(),
+    paper_id: paperId,
+    user_id: userId,
+    content,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  
+  storage.saveNote(note);
+  return note;
 }
 
 export async function getNotes(paperId: string): Promise<PaperNote[]> {
-  const { data, error } = await supabase
-    .from('paper_notes')
-    .select('*')
-    .eq('paper_id', paperId)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return data;
+  return storage.getNotesForPaper(paperId);
 }
 
 export async function updateNote(noteId: string, content: string): Promise<PaperNote> {
-  const { data, error } = await supabase
-    .from('paper_notes')
-    .update({ content })
-    .eq('id', noteId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  const notes = storage.getAllNotes();
+  const note = notes.find(n => n.id === noteId);
+  
+  if (!note) throw new Error('Note not found');
+  
+  const updated = { ...note, content, updated_at: new Date().toISOString() };
+  storage.saveNote(updated);
+  return updated;
 }
 
 export async function deleteNote(noteId: string): Promise<void> {
-  const { error } = await supabase.from('paper_notes').delete().eq('id', noteId);
-
-  if (error) throw error;
+  storage.deleteNote(noteId);
 }
 
 // ============================================
-// REAL-TIME SUBSCRIPTIONS
+// REALTIME SUBSCRIPTIONS (Mocked for localStorage)
 // ============================================
 
 export function subscribeToPaperUpdates(
   paperId: string,
   callback: (paper: Paper) => void
-) {
-  return supabase
-    .channel(`paper:${paperId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'papers',
-        filter: `id=eq.${paperId}`,
-      },
-      (payload) => {
-        callback(payload.new as Paper);
-      }
-    )
-    .subscribe();
-}
+): { unsubscribe: () => void } {
+  // Poll for changes
+  const interval = setInterval(() => {
+    const paper = storage.getPaper(paperId);
+    if (paper) {
+      callback(paper);
+    }
+  }, 1000);
 
-export function subscribeToHighlights(
-  paperId: string,
-  callback: (highlight: PaperHighlight) => void
-) {
-  return supabase
-    .channel(`highlights:${paperId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'paper_highlights',
-        filter: `paper_id=eq.${paperId}`,
-      },
-      (payload) => {
-        callback(payload.new as PaperHighlight);
-      }
-    )
-    .subscribe();
+  return {
+    unsubscribe: () => clearInterval(interval),
+  };
 }
 
