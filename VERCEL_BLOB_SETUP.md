@@ -10,8 +10,10 @@
 
 ## Add to .env:
 
+**IMPORTANT: Use VITE_ prefix for Vite to expose it to browser!**
+
 ```bash
-BLOB_READ_WRITE_TOKEN=vercel_blob_rw_xxxxxxxxxxxxx
+VITE_BLOB_READ_WRITE_TOKEN=vercel_blob_rw_xxxxxxxxxxxxx
 ```
 
 ## Restart Dev Server:
@@ -43,3 +45,4 @@ Should see:
 - Instant uploads
 - Free tier: 500GB transfer/month
 
+VITE_BLOB_READ_WRITE_TOKEN=your_token_here
