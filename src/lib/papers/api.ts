@@ -1,12 +1,9 @@
 // Paper API Client
-// Based on Open Paper's proven API patterns, adapted for Supabase + Vercel Blob
+// Based on Open Paper's proven client-side architecture
+// Uses localStorage for all data (no Supabase DB) + Vercel Blob for files
 
-import { supabase } from '../supabase';
 import * as pdfjsLib from 'pdfjs-dist';
-
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-
+import * as storage from './localStorage';
 import type {
   Paper,
   PaperHighlight,
@@ -66,27 +63,28 @@ export async function uploadPaper(file: File, userId: string, title?: string): P
   const { url: blobUrl } = await uploadResponse.json();
   console.log('4️⃣ [uploadPaper] Vercel Blob upload SUCCESS:', blobUrl);
 
-  // Create paper record in Supabase DB
-  console.log('5️⃣ [uploadPaper] Creating database record...');
-  const { data, error } = await supabase
-    .from('papers')
-    .insert({
-      user_id: userId,
-      title: title || file.name.replace('.pdf', ''),
-      storage_path: fileName,
-      pdf_url: blobUrl,
-      status: 'processing',
-      size_kb: Math.round(file.size / 1024),
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error('❌ [uploadPaper] Database insert failed:', error);
-    throw error;
-  }
+  // Create paper record in localStorage (OpenPaper style!)
+  console.log('5️⃣ [uploadPaper] Creating paper record in localStorage...');
   
-  console.log('6️⃣ [uploadPaper] Paper record created:', data.id);
+  const paperId = crypto.randomUUID();
+  const paper: Paper = {
+    id: paperId,
+    user_id: userId,
+    title: title || file.name.replace('.pdf', ''),
+    storage_path: fileName,
+    pdf_url: blobUrl,
+    status: 'processing',
+    size_kb: Math.round(file.size / 1024),
+    total_pages: 0,
+    authors: null,
+    abstract: null,
+    metadata: {},
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    last_accessed_at: null,
+  };
+  
+  console.log('6️⃣ [uploadPaper] Paper created:', paperId);
 
   // Extract text CLIENT-SIDE using PDF.js
   try {
@@ -115,79 +113,63 @@ export async function uploadPaper(file: File, userId: string, title?: string): P
     }
     
     // Update paper with extracted data
-    const { error: updateError } = await supabase
-      .from('papers')
-      .update({
-        status: 'completed',
-        total_pages: pdf.numPages,
-        metadata: { pages }
-      })
-      .eq('id', data.id);
+    paper.status = 'completed';
+    paper.total_pages = pdf.numPages;
+    paper.metadata = { pages };
     
-    if (updateError) {
-      console.error('❌ Update failed:', updateError);
-      throw updateError;
-    }
+    storage.savePaper(paper);
     
-    console.log('✅ [uploadPaper] COMPLETE! Paper ID:', data.id);
-    return { paper_id: data.id };
+    console.log('✅ [uploadPaper] COMPLETE! Paper ID:', paperId);
+    return { paper_id: paperId };
     
   } catch (extractError: any) {
     console.error('❌ Text extraction failed:', extractError);
     
     // Mark as failed
-    await supabase
-      .from('papers')
-      .update({ status: 'failed' })
-      .eq('id', data.id);
+    paper.status = 'failed';
+    storage.savePaper(paper);
     
     throw new Error(`Text extraction failed: ${extractError.message}`);
   }
 }
 
 export async function getPaper(paperId: string): Promise<Paper> {
-  const { data, error } = await supabase
-    .from('papers')
-    .select('*')
-    .eq('id', paperId)
-    .single();
-
-  if (error) throw error;
+  const paper = storage.getPaper(paperId);
+  
+  if (!paper) {
+    throw new Error('Paper not found');
+  }
 
   // Update last_accessed_at
-  supabase
-    .from('papers')
-    .update({ last_accessed_at: new Date().toISOString() })
-    .eq('id', paperId)
-    .then();
+  storage.updatePaper(paperId, {
+    last_accessed_at: new Date().toISOString()
+  });
 
-  return data;
+  return paper;
 }
 
 export async function listPapers(limit = 50, offset = 0): Promise<Paper[]> {
-  const { data, error } = await supabase
-    .from('papers')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  if (error) throw error;
-  return data;
+  const papers = storage.getAllPapers();
+  
+  // Sort by created_at descending
+  const sorted = papers.sort((a, b) => 
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+  
+  return sorted.slice(offset, offset + limit);
 }
 
 export async function updatePaper(
   paperId: string,
   updates: Partial<Paper>
 ): Promise<Paper> {
-  const { data, error } = await supabase
-    .from('papers')
-    .update(updates)
-    .eq('id', paperId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  const updated = storage.updatePaper(paperId, updates);
+  
+  if (!updated) {
+    throw new Error('Paper not found');
+  }
+  
+  return updated;
 }
 
 export async function deletePaper(paperId: string): Promise<void> {
